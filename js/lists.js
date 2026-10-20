@@ -2,7 +2,9 @@
 import { $, $$, esc, norm, slug, uid, plural, isFrance, toast } from "./util.js";
 import { S, M, go } from "./app.js";
 import { PHOTO_FR, LIFERS } from "./model.js";
-import { DEPTS, DEPT, REGIONS, deptsOfRegion, deptFromPlace, communeFromPlace, listCovers, whereIs } from "./geo.js";
+import { DEPTS, DEPT, REGIONS, deptsOfRegion, deptFromPlace, communeFromPlace, listCovers, whereIs, placeAt, allCountries } from "./geo.js";
+import { mapPicker } from "./map.js";
+import { fmtShort } from "./util.js";
 
 const TYPES = { dep: "Département", reg: "Région", lieu: "Lieu précis (jardin, réserve…)", pays: "Pays", autre: "Autre" };
 
@@ -29,10 +31,18 @@ function editForm(el, l) {
     ${isNew ? `<label>Type<select class="field" id="l-kind">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${st.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
     <label id="l-dep-w">Département<select class="field" id="l-dep">${DEPTS.map((d) => `<option value="${d.code}">${d.code} · ${esc(d.nom)}</option>`).join("")}</select></label>
     <label id="l-reg-w">Région<select class="field" id="l-reg">${Object.entries(REGIONS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
-    <label>Nom<input class="field" id="l-nom" value="${esc(st.nom || "")}" required></label>
+    <label>Nom<input class="field" id="l-nom" value="${esc(st.nom || "")}" required list="dl-countries" autocomplete="off"></label>
+    <datalist id="dl-countries">${[...new Set([...M.ticks.map((t) => t.p).filter(Boolean), ...allCountries()])].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
     <label>Comprise dans<select class="field" id="l-dans">${parentOptions(st.dans, l)}</select></label>
     <div class="row2"><label>Couleur<input class="field" type="color" id="l-col" value="${esc(l ? M.color(l.cle) : "#3B7A57")}"></label>
       <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
+    <div id="l-fixed-w"><span class="lab">Lieu fixe <small>(jardin, bureau… : l'endroit est repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
+      <ul class="plain" id="l-fixed"></ul>
+      <div class="panel" id="l-addp" hidden><div class="row2"><label>Depuis le <small>(vide = depuis toujours)</small><input class="field" type="date" id="p-depuis"></label><label>Nom du lieu<input class="field" id="p-nom" placeholder="Maison, Bureau IVECO…"></label></div>
+        <div class="mapbox" id="p-map"></div><p class="cap" id="p-coords">Touche la carte, ou ◎ pour ta position.</p>
+        <div class="row"><button class="btn" type="button" id="p-ok">Ajouter ce lieu</button></div></div>
+      <div class="row"><button class="btn" type="button" id="p-new">Ajouter un lieu</button></div>
+      ${!isNew ? `<label class="chk"><input type="checkbox" id="l-apply" checked> Placer les coches de cette liste qui n'ont pas de coordonnées, et la même observation dans les autres listes</label>` : ""}</div>
     ${isNew ? `<label class="chk"><input type="checkbox" id="l-fill" checked> Remplir avec les coches que j'ai déjà dans ce secteur</label><p class="cap" id="l-prev"></p>` : ""}
     <div class="row"><button class="btn btn-primary" type="submit">${isNew ? "Créer la liste" : "Enregistrer"}</button><button class="btn" type="button" id="l-cancel">Annuler</button></div></form>`;
   const kindSel = $("#l-kind"), depSel = $("#l-dep"), regSel = $("#l-reg"), nomIn = $("#l-nom"), dansSel = $("#l-dans");
@@ -43,7 +53,7 @@ function editForm(el, l) {
   const regionList = (reg) => M.listes.find((x) => x.region === reg);
   const sync = () => {
     const k = kindSel ? kindSel.value : st.kind;
-    $("#l-dep-w").hidden = k !== "dep"; $("#l-reg-w").hidden = k !== "reg";
+    $("#l-dep-w").hidden = k !== "dep"; $("#l-reg-w").hidden = k !== "reg"; if (k === "pays") nomIn.setAttribute("list", "dl-countries"); else nomIn.removeAttribute("list");
     if (autoName) nomIn.value = k === "dep" ? DEPT.get(depSel.value).nom : k === "reg" ? REGIONS[regSel.value] : "";
     if (isNew) { // sensible container: the region list of the department, or Photo France
       if (k === "dep") { const r = regionList(DEPT.get(depSel.value).reg); dansSel.value = r ? r.cle : PHOTO_FR; }
@@ -77,6 +87,25 @@ function editForm(el, l) {
   [kindSel, depSel, regSel].forEach((x) => x && x.addEventListener("change", () => { autoName = isNew; sync(); }));
   nomIn.addEventListener("change", () => isNew && preview());
   sync();
+  // fixed places (one per period)
+  st.lieux = (st.lieux || []).slice();
+  const showFixed = () => { $("#l-fixed").innerHTML = st.lieux.slice().sort((a, b) => (a.depuis || "").localeCompare(b.depuis || "")).map((p) => `<li class="lrow"><span class="grow"><b>${esc(p.nom || "Sans nom")}</b><small class="cap">${p.depuis ? "depuis le " + fmtShort(p.depuis) : "depuis toujours"} · ${p.lat}, ${p.lon}</small></span><button class="linkish" type="button" data-rmp="${st.lieux.indexOf(p)}">retirer</button></li>`).join("") || '<li class="cap">Aucun lieu fixe.</li>';
+    $$("[data-rmp]").forEach((b) => b.addEventListener("click", () => { st.lieux.splice(+b.dataset.rmp, 1); showFixed(); })); };
+  const kindNow = () => (kindSel ? kindSel.value : st.kind);
+  const fixedOk = () => !["dep", "reg", "pays"].includes(kindNow());
+  $("#l-fixed-w").hidden = !fixedOk(); if (kindSel) kindSel.addEventListener("change", () => { $("#l-fixed-w").hidden = !fixedOk(); });
+  showFixed();
+  let np = null, pmap = null;
+  $("#p-new").addEventListener("click", () => {
+    $("#l-addp").hidden = false; $("#p-new").hidden = true; np = { lat: null, lon: null };
+    if (!pmap) pmap = mapPicker($("#p-map"), {}, (lat, lon) => { if (lat == null) return; np.lat = lat; np.lon = lon; $("#p-coords").textContent = `${lat}, ${lon}`; });
+  });
+  $("#p-ok").addEventListener("click", () => {
+    if (!np || np.lat == null) { toast("Place le point sur la carte."); return; }
+    st.lieux.push({ depuis: $("#p-depuis").value || null, nom: $("#p-nom").value.trim() || nomIn.value.trim(), lat: np.lat, lon: np.lon });
+    st.lieux.forEach((p) => { if (!p.depuis) delete p.depuis; });
+    $("#l-addp").hidden = true; $("#p-new").hidden = false; showFixed();
+  });
   $("#l-cancel").addEventListener("click", () => { el.innerHTML = ""; });
   $("#lf").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -84,12 +113,21 @@ function editForm(el, l) {
     const base = { nom, dans: dansSel.value || null, couleur: $("#l-col").value, numerotee: $("#l-num").checked || null };
     if (!isNew) {
       if (base.dans && M.chain(base.dans).includes(l.cle)) { toast("Une liste ne peut pas être dans une de ses sous-listes."); return; }
-      S.apply({ kind: "set-liste", cle: l.cle, patch: { ...base, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }, `Liste modifiée : ${nom}`);
+      const ops = [{ kind: "set-liste", cle: l.cle, patch: { ...base, lieux: st.lieux.length ? st.lieux : null, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }];
+      if (st.lieux.length && $("#l-apply") && $("#l-apply").checked) {
+        const L2 = { ...l, lieux: st.lieux };
+        for (const t of M.ticks.filter((x) => x.cle === l.cle && x.lat == null)) {
+          const f = placeAt(L2, t.d), patch = { l: f.nom || null, lat: f.lat, lon: f.lon, p: null };
+          ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch });
+          if (t.d) M.ticks.filter((x) => x.e === t.e && x.d === t.d && x !== t).forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch }));
+        }
+      }
+      S.apply(ops, `Liste modifiée : ${nom}${ops.length > 1 ? ` (${ops.length - 1} coches placées)` : ""}`);
       toast("Liste modifiée."); el.innerHTML = ""; return;
     }
     const k = kindSel.value;
     let cle = slug(nom), i = 2; while (M.liste.has(cle) || /^yl\d{4}$/.test(cle)) cle = slug(nom) + "-" + i++;
-    const liste = { cle, ...base, type: k === "pays" ? "pays" : k === "autre" ? "zone" : "zone", ...geoOf() };
+    const liste = { cle, ...base, type: k === "pays" ? "pays" : "zone", ...geoOf(), ...(st.lieux.length && fixedOk() ? { lieux: st.lieux } : {}) };
     Object.keys(liste).forEach((x) => liste[x] == null && delete liste[x]);
     const ops = [{ kind: "add-liste", liste }];
     if ($("#l-fill").checked && found && found.ticks.length) {

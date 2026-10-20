@@ -40,7 +40,9 @@ export function mapView(el, points) {
   if (!L() || !points.length) return null;
   const map = L().map(el, { zoomControl: true, scrollWheelZoom: false });
   LAYERS.plan().addTo(map);
-  const g = L().featureGroup(points.map((p) => L().circleMarker([p.lat, p.lon], { radius: 6, color: "#0A7895", weight: 2, fillOpacity: 0.6 }).bindPopup(p.html))).addTo(map);
+  // the bigger, more important points last, so they stay on top
+  const sorted = points.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+  const g = L().featureGroup(sorted.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 6, color: p.stroke || p.color || "#0A7895", fillColor: p.color || "#0A7895", weight: p.stroke ? 4 : 2, fillOpacity: p.z ? 0.9 : 0.55 }).bindPopup(p.html))).addTo(map);
   map.fitBounds(g.getBounds().pad(0.3), { maxZoom: 13 });
   setTimeout(() => map.invalidateSize(), 60);
   return map;

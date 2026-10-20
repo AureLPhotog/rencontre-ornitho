@@ -21,21 +21,67 @@ export function deptFromPlace(l) {
 }
 export function communeFromPlace(l) { const m = String(l || "").match(/\(([^()]+),\s*(\d{2}|2[AB])\)\s*$/); return m ? m[1].trim() : null; }
 
-// where a point is (France only), from the public French API, cached per point
+// where a point is: French commune and department (geo.api.gouv.fr), or the country elsewhere (OpenStreetMap Nominatim)
+const OVERSEAS = { "971": "Guadeloupe", "972": "Martinique", "973": "Guyane", "974": "La Réunion", "976": "Mayotte" };
 const CACHE = new Map();
 export async function whereIs(lat, lon) {
   const k = `${lat.toFixed(4)},${lon.toFixed(4)}`; if (CACHE.has(k)) return CACHE.get(k);
+  let out = null;
   try {
-    const r = await fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom,codeDepartement,codeRegion&format=json`, { cache: "force-cache" });
-    const j = (await r.json())[0] || null;
-    const out = j ? { commune: j.nom, dep: j.codeDepartement, reg: REGION_INSEE[j.codeRegion] || null } : null;
-    CACHE.set(k, out); return out;
-  } catch (_) { return null; }
+    const r = await fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom,codeDepartement,codeRegion&format=json`);
+    const j = (await r.json())[0];
+    if (j) out = OVERSEAS[j.codeDepartement] ? { fr: false, pays: OVERSEAS[j.codeDepartement], commune: j.nom } : { fr: true, commune: j.nom, dep: j.codeDepartement, reg: REGION_INSEE[j.codeRegion] || null };
+  } catch (_) { return null; } // no network: no check
+  if (!out) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=5&accept-language=fr&lat=${lat}&lon=${lon}`);
+      const j = await r.json();
+      if (j && j.address && j.address.country) out = j.address.country_code === "fr" ? { fr: true, commune: null, dep: null, reg: null } : { fr: false, pays: j.address.country, cc: j.address.country_code };
+      else out = { fr: false, pays: null, mer: true };
+    } catch (_) { return null; }
+  }
+  CACHE.set(k, out); return out;
 }
-
 // does a list (with its geography) contain a sighting in this commune / department?
 export function listCovers(l, { dep, commune }) {
   if (l.communes && commune && l.communes.some((c) => norm(c) === norm(commune))) return true;
   if (l.deps && dep && l.deps.includes(dep)) return true;
   return false;
+}
+
+// a list tied to one spot (jardin, bureau): its place on a given date; the spot can move, each move has a start date
+export function placeAt(l, d) {
+  const ps = (l && l.lieux || []).slice().sort((a, b) => (a.depuis || "").localeCompare(b.depuis || ""));
+  if (!ps.length) return null;
+  let cur = ps[0]; for (const p of ps) if (!p.depuis || (d && p.depuis <= d)) cur = p;
+  return cur;
+}
+export function distKm(a, b) {
+  const R = 6371, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// is a point outside a list's area? returns a short reason, or "" when it fits (or when nothing can be said)
+export function outsideOf(l, w, pt, date) {
+  if (!l) return "";
+  const fixed = placeAt(l, date);
+  if (fixed && pt && pt.lat != null) { const d = distKm(fixed, pt); return d > 0.3 ? `point à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${fixed.nom || l.nom}` : ""; }
+  if (!w) return "";
+  if (l.pays === "France") return w.fr ? "" : w.pays ? `point en ${w.pays}` : "point hors de France";
+  if (l.type === "pays") return w.fr ? "point en France" : w.pays && norm(w.pays) !== norm(l.nom) ? `point en ${w.pays}` : "";
+  if (l.deps || l.communes) {
+    if (!w.fr) return w.pays ? `point en ${w.pays}` : "point hors de France";
+    if (!w.dep) return "";
+    if (listCovers(l, w)) return "";
+    const d = DEPT.get(w.dep); return `point à ${w.commune || "?"} (${d ? d.nom : w.dep})`;
+  }
+  return "";
+}
+
+// every country name, in French, for the country lists
+export function allCountries() {
+  let dn; try { dn = new Intl.DisplayNames(["fr"], { type: "region" }); } catch (_) { return []; }
+  const out = new Set(), A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (const a of A) for (const b of A) { try { const n = dn.of(a + b); if (n && n !== a + b && !/inconnue|^\d/i.test(n)) out.add(n); } catch (_) {} }
+  out.delete("France"); return [...out].sort((x, y) => x.localeCompare(y, "fr"));
 }

@@ -1,5 +1,6 @@
 // Everything the screens show is derived here from the raw database (lists, species, ticks).
 import { norm, isFrance, yearOf } from "./util.js";
+import { deptFromPlace, communeFromPlace, placeAt, distKm } from "./geo.js";
 
 export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
 const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || (a.d || "").localeCompare(b.d || "") || ((a.n || 0) - (b.n || 0));
@@ -104,6 +105,17 @@ export function buildModel(db) {
       if (t.lat == null) out.noCoords.set(t.cle, (out.noCoords.get(t.cle) || 0) + 1);
       const y = yearOf(t.d), yl = y && M.liste.get("yl" + y);
       if (yl && t.cle !== yl.cle && !M.inList(t.e, yl.cle) && !out.yearMissing.some((x) => x.t.e === t.e && x.year === y)) out.yearMissing.push({ t, year: y });
+    }
+    // ticks placed outside their list's area, judged from the place name ("…, 69)") or the fixed spot
+    out.outside = [];
+    for (const l of M.listes) for (const t of (db.coches[l.cle] || [])) {
+      let why = "";
+      if (l.lieux && t.lat != null) { const f = placeAt(l, t.d); const d = f ? distKm(f, t) : 0; if (d > 0.3) why = `à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${f.nom || l.nom}`; }
+      else if (l.deps && t.l) { const dep = deptFromPlace(t.l); if (dep && !l.deps.includes(dep)) why = `lieu dans le ${dep}`; }
+      else if (l.communes && t.l) { const c = communeFromPlace(t.l); if (c && !l.communes.some((x) => norm(x) === norm(c))) why = `lieu à ${c}`; }
+      else if (l.type === "pays" && t.p && norm(t.p) !== norm(l.nom)) why = `pays : ${t.p}`;
+      if (!isFrance(t.p) && (l.deps || l.communes || l.pays === "France")) why = `pays : ${t.p}`;
+      if (why) out.outside.push({ t: { ...t, cle: l.cle }, why });
     }
     // same species, same day, different places: one observation should have one place
     const PREC = ["jardin", "bureau", "ouessant", "rhone", "aura", "guyane", PHOTO_FR, LIFERS, VU];

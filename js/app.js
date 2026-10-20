@@ -181,11 +181,18 @@ function screenSpecies(sid) {
   const m = M.bySp.get(sid) || new Map();
   const st = (e.st || []).map((v, i) => v ? `${["Nicheur", "Hivernant", "De passage", "Occasionnel"][i]} ${esc(v)}` : "").filter(Boolean).join(" · ");
   const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">modifier</a></span>`).join("")}</li>`).join("");
-  const pts = [...m.values()].flat().filter((t) => t.lat != null).map((t) => ({ lat: t.lat, lon: t.lon, html: `${esc(L(t.cle).nom)} · ${esc(t.d ? fmtShort(t.d) : "")}<br>${esc(t.l || "")}` }));
+  // one point per place: Photo France in green, the lifer in red, everything else in blue
+  const byPlace = new Map();
+  [...m.values()].flat().filter((t) => t.lat != null).forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!byPlace.has(k)) byPlace.set(k, []); byPlace.get(k).push(t); });
+  const pts = [...byPlace.values()].map((ts) => {
+    const lif = ts.some((t) => t.cle === LIFERS), pf = ts.some((t) => t.cle === PHOTO_FR);
+    const style = lif && pf ? { color: "#D7263D", stroke: "#2E9B4F", r: 10, z: 3 } : lif ? { color: "#D7263D", r: 9, z: 2 } : pf ? { color: "#2E9B4F", r: 9, z: 2 } : { color: "#0A7895", r: 6, z: 0 };
+    return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: ts.map((t) => `<b>${esc(L(t.cle).nom)}</b>${M.rankOf(t) ? " n°" + M.rankOf(t) : ""} · ${esc(t.d ? fmtShort(t.d) : "")}`).join("<br>") + (ts[0].l ? `<br>${esc(ts[0].l)}` : "") };
+  });
   view.innerHTML = `<div class="screen">
     <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}${e.q ? `<p class="cap">Qualité photo : ${esc(e.q)}</p>` : ""}</header>
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
-    ${pts.length ? `<div class="minimap" id="mm"></div>` : ""}
+    ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
@@ -239,6 +246,7 @@ function screenTodo() {
   const cats = [...new Set(tasks.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
   view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
+    ${c.outside.length ? `<section><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
     ${c.placeMismatch.length ? `<section><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
       ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
     ${c.yearMissing.length || c.nested.length ? `<section><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">

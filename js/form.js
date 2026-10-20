@@ -3,7 +3,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
-import { whereIs, listCovers } from "./geo.js";
+import { whereIs, listCovers, placeAt, distKm, outsideOf } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
@@ -78,18 +78,31 @@ export function renderAdd(view, q) {
   spIn.addEventListener("blur", () => setTimeout(() => { sug.hidden = true; }, 150));
 
   $$("[data-photo]").forEach((b) => b.addEventListener("click", () => { st.photo = b.dataset.photo === "1"; store("ro.draft", { ...draft, photo: st.photo }); refresh(); }));
-  $$("[data-zone]").forEach((b) => b.addEventListener("click", () => { st.zone = b.dataset.zone; saveUI({ zone: st.zone }); refresh(); }));
+  $$("[data-zone]").forEach((b) => b.addEventListener("click", () => {
+    st.zone = b.dataset.zone; saveUI({ zone: st.zone });
+    const fixed = placeAt(M.liste.get(st.zone), st.d); // jardin, bureau: their own spot on that date
+    if (fixed) { st.l = fixed.nom || ""; st.lat = fixed.lat; st.lon = fixed.lon; st.p = ""; $("#f-lieu").value = st.l; $("#f-pays").value = ""; mp.set(st.lat, st.lon, 16); $("#f-coords").textContent = `${st.lat}, ${st.lon}`; $("#f-clear").hidden = false; }
+    refresh();
+  }));
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; refresh(); });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); refresh(); });
   $("#f-det").addEventListener("input", (e) => { st.t = e.target.value; });
   const mp = wirePlace(st, async (why) => {
-    if (why !== "coords" || st.lat == null) return;
-    if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) { st.zone = "ouessant"; refresh(); }
-    const w = await whereIs(st.lat, st.lon); if (!w) return; // abroad, or no network
-    if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
-    // the most precise place list that contains the point (zones are sorted most precise first)
-    const z = zones.find((l) => listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone });
-    if (!st.l) { st.l = `${w.commune} (${w.dep})`; $("#f-lieu").value = st.l; }
+    if (st.lat == null) { st.where = null; refresh(); return; }
+    const at = { lat: st.lat, lon: st.lon };
+    // within 150 m of the garden or the office (as placed on that date): that list
+    const near = zones.find((l) => { const f = placeAt(l, st.d); return f && distKm(f, st) < 0.15; });
+    if (near) { st.zone = near.cle; saveUI({ zone: st.zone }); if (!st.l) { st.l = placeAt(near, st.d).nom || ""; $("#f-lieu").value = st.l; } }
+    else if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) st.zone = "ouessant";
+    st.where = undefined; refresh();
+    const w = await whereIs(st.lat, st.lon);
+    if (st.lat !== at.lat || st.lon !== at.lon) return; // the point moved meanwhile
+    st.where = w;
+    if (w && w.fr) {
+      if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
+      if (!near && w.dep) { const z = zones.find((l) => !l.lieux && listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone }); }
+      if (!st.l && w.commune) { st.l = w.dep ? `${w.commune} (${w.dep})` : w.commune; $("#f-lieu").value = st.l; }
+    } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; if (!st.l && w.commune) { st.l = w.commune; $("#f-lieu").value = st.l; } }
     refresh();
   });
   // a sighting already ticked that day in another list: same place, so the lists stay linked
@@ -117,10 +130,12 @@ export function renderAdd(view, q) {
     if (!sid && !st.newName) { $("#f-targets").innerHTML = '<p class="cap">Choisis d\'abord l\'espèce.</p>'; return; }
     const { list } = suggest(M, sid, { photo: st.photo, zone: fr ? st.zone : null, country: st.p, date: st.d });
     list.forEach((x) => { if (st.picks[x.cle] && st.picks[x.cle].touched) { x.checked = st.picks[x.cle].checked; if (st.picks[x.cle].num) x.num = st.picks[x.cle].num; } });
+    // GPS check: a tick placed outside the list's area is unticked and flagged
+    list.forEach((x) => { const l = M.liste.get(x.cle); const out = st.lat != null ? outsideOf(l, st.where, st, st.d) : ""; x.out = out; if (out && !(st.picks[x.cle] && st.picks[x.cle].touched)) x.checked = false; });
     st.targets = list;
     $("#f-targets").innerHTML = list.map((x) => {
       const l = M.liste.get(x.cle), nom = l ? l.nom : `YL ${x.year}`;
-      return `<label class="target ${x.already ? "already" : ""}"><input type="checkbox" data-t="${x.cle}" ${x.checked ? "checked" : ""}><span><b>${esc(nom)}</b><small>${esc(x.why)}</small></span>${x.num && !x.already ? `<span class="num">n° <input class="field" type="number" min="1" data-n="${x.cle}" value="${x.num}"></span>` : ""}</label>`;
+      return `<label class="target ${x.already ? "already" : ""}"><input type="checkbox" data-t="${x.cle}" ${x.checked ? "checked" : ""}><span><b>${esc(nom)}</b><small>${esc(x.why)}${x.out ? ` · <span class="miss">${esc(x.out)}</span>` : ""}</small></span>${x.num && !x.already ? `<span class="num">n° <input class="field" type="number" min="1" data-n="${x.cle}" value="${x.num}"></span>` : ""}</label>`;
     }).join("");
     $$("[data-t]").forEach((i) => i.addEventListener("change", () => { st.picks[i.dataset.t] = { ...(st.picks[i.dataset.t] || {}), touched: true, checked: i.checked }; const x = st.targets.find((y) => y.cle === i.dataset.t); if (x) x.checked = i.checked; }));
     $$("[data-n]").forEach((i) => i.addEventListener("change", () => { st.picks[i.dataset.n] = { ...(st.picks[i.dataset.n] || {}), touched: true, checked: true, num: +i.value }; const x = st.targets.find((y) => y.cle === i.dataset.n); if (x) x.num = +i.value; }));
@@ -178,8 +193,13 @@ export function renderEdit(view, cle, id) {
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); });
   $("#f-det").addEventListener("input", (e) => { st.t = e.target.value; });
   const fn = $("#f-n"); if (fn) fn.addEventListener("change", (e) => { st.n = +e.target.value || null; });
-  $("#ed").addEventListener("submit", (e) => {
+  let confirmed = false;
+  $("#ed").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!confirmed && st.lat != null && (st.lat !== t0.lat || st.lon !== t0.lon)) {
+      const w = await whereIs(st.lat, st.lon), out = outsideOf(l, w, st, st.d);
+      if (out) { confirmed = true; const b = $("#ed button[type=submit]"); b.textContent = "Enregistrer quand même"; toast(`Attention : ${out}, hors de ${l.nom}.`, "error"); return; }
+    }
     const patch = {}; ["d", "n", "l", "p", "lat", "lon", "t"].forEach((k) => { const a = t0[k] ?? null, b = (typeof st[k] === "string" ? st[k].trim() : st[k]) ?? null; if ((a || null) !== (b || null) && !(a === 0 && b === 0)) patch[k] = b; });
     if (!Object.keys(patch).length) { history.back(); return; }
     const ops = [{ kind: "set-tick", cle, id, patch }];
