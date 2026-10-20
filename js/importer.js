@@ -2,7 +2,7 @@
 import { $, $$, esc, norm, cap, uid, plural, fmtShort, isFrance, yearOf, toast } from "./util.js";
 import { S, M, go } from "./app.js";
 import { PHOTO_FR, LIFERS, VU } from "./model.js";
-import { deptFromPlace, communeFromPlace, deptByName, listCovers } from "./geo.js";
+import { deptFromPlace, communeFromPlace, deptByName, listCovers, placeAt, distKm } from "./geo.js";
 import { loadXlsx } from "./export.js";
 import { makeMatcher } from "./taxo.js";
 
@@ -83,7 +83,7 @@ function fromCocheurs(rows) {
 // kinds: add (new tick), date (undated tick gets a date), earlier (an earlier date than the app's), place (coordinates or place missing)
 function propose(obs, source, target) {
   const P = [], push = (x) => P.push({ id: P.length, ...x });
-  const zones = M.listes.filter((l) => l.deps || l.communes);
+  const zones = M.listes.filter((l) => l.deps || l.communes), spots = M.listes.filter((l) => l.lieux && l.lieux.length);
   const byKey = new Map(); // first observation per (list, species) or (year list, scope, species)
   const keep = (k, o) => { const cur = byKey.get(k); if (!cur || (o.d && (!cur.d || o.d < cur.d))) byKey.set(k, o); };
   const valid = obs.filter((o) => o.sid);
@@ -92,6 +92,11 @@ function propose(obs, source, target) {
     const fr = isFrance(o.p);
     if (o.d) keep(`yl${yearOf(o.d)}|${fr ? "fr" : "x"}|${o.sid}`, o);
     if (fr) zones.forEach((l) => { if (listCovers(l, o)) keep(l.cle + "|" + o.sid, o); });
+    // garden, office: a sighting within 300 m of their spot on that date (and not before the first spot)
+    if (fr && o.d && o.lat != null) spots.forEach((l) => {
+      const f = placeAt(l, o.d), first = (l.lieux || []).map((x) => x.depuis).filter(Boolean).sort()[0];
+      if (f && (!first || o.d >= first) && distKm(f, o) <= 0.3) keep(l.cle + "|" + o.sid, { ...o, l: f.nom || o.l, lat: f.lat, lon: f.lon });
+    });
     else M.listes.filter((l) => l.type === "pays" && norm(l.nom) === norm(o.p)).forEach((l) => keep(l.cle + "|" + o.sid, o));
     keep(VU + "|" + (fr ? "fr" : "x") + "|" + o.sid, o);
   }

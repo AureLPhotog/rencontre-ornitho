@@ -73,7 +73,7 @@ function editForm(el, l) {
       const cur = best.get(t.e); if (!cur || (t.d && (!cur.d || t.d < cur.d))) best.set(t.e, t);
     }
     const out = [];
-    for (const [e, t] of best) { if (k !== "pays" && !M.inList(e, PHOTO_FR)) { noPhoto++; continue; } if (k === "pays" && !M.inList(e, LIFERS) && !M.inList(e, "vu")) continue; out.push(t); }
+    for (const [e, t] of best) { if (k !== "pays" && !M.inList(e, PHOTO_FR)) { noPhoto++; continue; } out.push(t); }
     return { ticks: out, noPhoto };
   }
   function preview() {
