@@ -18,7 +18,7 @@ export function fmtDay(iso, withYear = true) {
   return `${d === 1 ? "1er" : d} ${MOIS[m - 1]}${withYear ? " " + y : ""}`;
 }
 // where a tick's date (sd) or place (sl) comes from
-export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées" };
+export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées" };
 export const srcName = (k) => SOURCES[k] || (k ? k : "source inconnue");
 export const fmtShort = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 export const isFrance = (p) => !p || norm(p) === "france";

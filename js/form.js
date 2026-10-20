@@ -3,7 +3,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
-import { whereIs, listCovers, placeAt, distKm, outsideOf } from "./geo.js";
+import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
@@ -101,7 +101,11 @@ export function renderAdd(view, q) {
     if (w && w.fr) {
       if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
       if (!near && w.dep) { const z = zones.find((l) => !l.lieux && listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone }); }
-      if (!st.l && w.commune) { st.l = w.dep ? `${w.commune} (${w.dep})` : w.commune; $("#f-lieu").value = st.l; }
+      if (!st.l && w.commune) {
+        const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; st.l = `${w.commune}${w.dep ? ` (${w.dep})` : ""}`; $("#f-lieu").value = st.l; const auto = st.l;
+        // then the IGN lieu-dit, if the name was not typed meanwhile
+        lieuDit(at.lat, at.lon).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) { st.l = `${ld.name} (${com})`; $("#f-lieu").value = st.l; } });
+      }
     } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; if (!st.l && w.commune) { st.l = w.commune; $("#f-lieu").value = st.l; } }
     refresh();
   });

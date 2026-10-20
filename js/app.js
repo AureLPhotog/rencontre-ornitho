@@ -7,7 +7,7 @@ import { mapView } from "./map.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { distKm, whereIs } from "./geo.js";
+import { distKm, whereIs, lieuDit } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -207,6 +207,8 @@ async function nameFor(t) {
   if (best) return { l: best.l, sl: best.sl || null };
   for (const x of M.db.lieux || []) if (x.lat != null && distKm(x, t) < 0.3) return { l: x.nom, sl: "appli" };
   const w = await whereIs(t.lat, t.lon);
+  const ld = w && w.fr ? await lieuDit(t.lat, t.lon) : null;
+  if (ld && w.commune) return { l: `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})`, sl: "ign" };
   if (w && w.commune) return { l: w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune, sl: "geo" };
   if (w && w.pays && !w.mer) return { l: w.pays, sl: "geo" };
   return null;
@@ -222,7 +224,7 @@ function screenJournal() {
       <select class="field" id="jl"><option value="">Toutes les listes</option>${lists.map((l) => `<option value="${l.cle}" ${F.cle === l.cle ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select>
       <select class="field" id="jy"><option value="">Toutes les années</option>${years.map((y) => `<option ${+F.year === y ? "selected" : ""}>${y}</option>`).join("")}<option value="none" ${F.year === "none" ? "selected" : ""}>Sans date</option></select>
       <select class="field" id="jm"><option value="">Tout</option><option value="coords" ${F.miss === "coords" ? "selected" : ""}>Sans coordonnées</option><option value="lieu" ${F.miss === "lieu" ? "selected" : ""}>Sans lieu</option><option value="date" ${F.miss === "date" ? "selected" : ""}>Sans date</option></select></div>
-    <p class="cap" id="jc"></p><div class="row" id="jname" hidden><button class="btn" id="jname-go" type="button"></button><span class="cap">D'abord une coche de la même observation ou une coche déjà nommée à moins de 300 m, sinon la commune.</span></div><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
+    <p class="cap" id="jc"></p><div class="row" id="jname" hidden><button class="btn" id="jname-go" type="button"></button><span class="cap">D'abord une coche de la même observation ou une coche déjà nommée à moins de 300 m, sinon le lieu-dit de l'IGN le plus proche (à 1,5 km au plus, ou l'étang si le point est dedans), sinon la commune.</span></div><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
   let shown = 200;
   const draw = () => {
     const k = norm(F.q);

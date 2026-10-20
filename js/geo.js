@@ -85,3 +85,31 @@ export function allCountries() {
   for (const a of A) for (const b of A) { try { const n = dn.of(a + b); if (n && n !== a + b && !/inconnue|^\d/i.test(n)) out.add(n); } catch (_) {} }
   out.delete("France"); return [...out].sort((x, y) => x.localeCompare(y, "fr"));
 }
+
+// ---------- lieux-dits (IGN BD TOPO, public WFS of the Géoplateforme) ----------
+// named places around a point: lieux-dits (inhabited or not), ponds and lakes, marshes, bays, capes, valleys…
+// A point inside a named pond gets the pond; otherwise the nearest name within 1.5 km.
+const LD_LAYERS = ["lieu_dit_non_habite", "zone_d_habitation", "plan_d_eau", "detail_hydrographique", "detail_orographique"];
+const LD_SKIP = new Set(["Ile", "Île", "Montagne", "Plaine", "Massif"]);
+const ringsOf = (g) => g.type === "Polygon" ? [g.coordinates[0]] : g.type === "MultiPolygon" ? g.coordinates.map((p) => p[0]) : [];
+const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+export async function lieuDit(lat, lon) {
+  const d = 0.015, bbox = `${lat - d},${lon - d},${lat + d},${lon + d},urn:ogc:def:crs:EPSG::4326`;
+  const all = await Promise.all(LD_LAYERS.map(async (layer) => {
+    try {
+      const r = await fetch(`https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:${layer}&outputFormat=application/json&COUNT=200&BBOX=${bbox}`);
+      return ((await r.json()).features || []).map((f) => ({ layer, f }));
+    } catch (_) { return null; }
+  }));
+  if (all.every((x) => x === null)) return null; // no network
+  let best = null;
+  for (const { layer, f } of all.flat().filter(Boolean)) {
+    const name = f.properties && f.properties.toponyme, g = f.geometry; if (!name || !g || LD_SKIP.has(f.properties.nature)) continue;
+    let km;
+    if (g.type === "Point") km = distKm({ lat, lon }, { lat: g.coordinates[1], lon: g.coordinates[0] });
+    else { const rs = ringsOf(g); if (!rs.length) continue; km = rs.some((r) => inRing(r, lon, lat)) ? 0 : Math.min(...rs.flat().map(([x, y]) => distKm({ lat, lon }, { lat: y, lon: x }))); }
+    const score = km - (layer === "plan_d_eau" && km === 0 ? 1 : 0); // inside a pond: the pond wins
+    if (km <= 1.5 && (!best || score < best.score)) best = { name: name.charAt(0).toUpperCase() + name.slice(1), km, score, nature: f.properties.nature };
+  }
+  return best || false;
+}
