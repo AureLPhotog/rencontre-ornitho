@@ -65,7 +65,7 @@ export function distKm(a, b) {
 export function outsideOf(l, w, pt, date) {
   if (!l) return "";
   const fixed = placeAt(l, date);
-  if (fixed && pt && pt.lat != null) { const d = distKm(fixed, pt); return d > 0.3 ? `point à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${fixed.nom || l.nom}` : ""; }
+  if (fixed && pt && pt.lat != null) { const d = distKm(fixed, pt); return d > (l.rayon || 300) / 1000 ? `point à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${fixed.nom || l.nom}` : ""; }
   if (!w) return "";
   if (l.pays === "France") return w.fr ? "" : w.pays ? `point en ${w.pays}` : "point hors de France";
   if (l.type === "pays") return w.fr ? "point en France" : w.pays && norm(w.pays) !== norm(l.nom) ? `point en ${w.pays}` : "";

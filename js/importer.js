@@ -92,10 +92,10 @@ function propose(obs, source, target) {
     const fr = isFrance(o.p);
     if (o.d) keep(`yl${yearOf(o.d)}|${fr ? "fr" : "x"}|${o.sid}`, o);
     if (fr) zones.forEach((l) => { if (listCovers(l, o)) keep(l.cle + "|" + o.sid, o); });
-    // garden, office: a sighting within 300 m of their spot on that date (and not before the first spot)
+    // garden, office: a sighting within the list's radius (300 m unless set) of their spot on that date (and not before the first spot)
     if (fr && o.d && o.lat != null) spots.forEach((l) => {
       const f = placeAt(l, o.d), first = (l.lieux || []).map((x) => x.depuis).filter(Boolean).sort()[0];
-      if (f && (!first || o.d >= first) && distKm(f, o) <= 0.3) keep(l.cle + "|" + o.sid, { ...o, l: f.nom || o.l, lat: f.lat, lon: f.lon });
+      if (f && (!first || o.d >= first) && distKm(f, o) <= (l.rayon || 300) / 1000) keep(l.cle + "|" + o.sid, { ...o, l: f.nom || o.l, lat: f.lat, lon: f.lon });
     });
     else M.listes.filter((l) => l.type === "pays" && norm(l.nom) === norm(o.p)).forEach((l) => keep(l.cle + "|" + o.sid, o));
     keep(VU + "|" + (fr ? "fr" : "x") + "|" + o.sid, o);

@@ -37,6 +37,7 @@ function editForm(el, l) {
     <div class="row2"><label>Couleur<input class="field" type="color" id="l-col" value="${esc(l ? M.color(l.cle) : "#3B7A57")}"></label>
       <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
     <div id="l-fixed-w"><span class="lab">Lieu <small>(repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
+      <label>Rayon autour du lieu, en mètres <small>(une coche plus loin est signalée ; un import date les coches dans ce rayon)</small><input class="field" type="number" min="50" step="50" id="l-rayon" value="${esc(st.rayon || 300)}" style="max-width:140px"></label>
       <ul class="plain" id="l-fixed"></ul>
       <div id="l-addp"></div>
       <div class="row"><button class="btn" type="button" id="p-new">Ajouter un lieu</button></div>
@@ -118,7 +119,7 @@ function editForm(el, l) {
     const base = { nom, dans: dansSel.value || null, couleur: $("#l-col").value, numerotee: $("#l-num").checked || null };
     if (!isNew) {
       if (base.dans && M.chain(base.dans).includes(l.cle)) { toast("Une liste ne peut pas être dans une de ses sous-listes."); return; }
-      const ops = [{ kind: "set-liste", cle: l.cle, patch: { ...base, lieux: st.lieux.length ? st.lieux : null, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }];
+      const ops = [{ kind: "set-liste", cle: l.cle, patch: { ...base, lieux: st.lieux.length ? st.lieux : null, rayon: fixedOk() && +$("#l-rayon").value && +$("#l-rayon").value !== 300 ? +$("#l-rayon").value : null, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }];
       if (st.lieux.length && $("#l-apply") && $("#l-apply").checked) {
         const L2 = { ...l, lieux: st.lieux };
         for (const t of M.ticks.filter((x) => x.cle === l.cle && x.lat == null)) {

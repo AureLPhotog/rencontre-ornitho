@@ -91,7 +91,7 @@ export function renderAdd(view, q) {
     if (st.lat == null) { st.where = null; refresh(); return; }
     const at = { lat: st.lat, lon: st.lon };
     // within 150 m of the garden or the office (as placed on that date): that list
-    const near = zones.find((l) => { const f = placeAt(l, st.d); return f && distKm(f, st) < 0.15; });
+    const near = zones.find((l) => { const f = placeAt(l, st.d); return f && distKm(f, st) < Math.min(0.15, (l.rayon || 300) / 2000); });
     if (near) { st.zone = near.cle; saveUI({ zone: st.zone }); if (!st.l) { st.l = placeAt(near, st.d).nom || ""; $("#f-lieu").value = st.l; } }
     else if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) st.zone = "ouessant";
     st.where = undefined; refresh();

@@ -117,7 +117,7 @@ export function buildModel(db) {
     out.outside = [];
     for (const l of M.listes) for (const t of (db.coches[l.cle] || [])) {
       let why = "";
-      if (l.lieux && t.lat != null) { const f = placeAt(l, t.d); const d = f ? distKm(f, t) : 0; if (d > 0.3) why = `à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${f.nom || l.nom}`; }
+      if (l.lieux && t.lat != null) { const f = placeAt(l, t.d); const d = f ? distKm(f, t) : 0; if (d > (l.rayon || 300) / 1000) why = `à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${f.nom || l.nom}`; }
       else if (l.deps && t.l) { const dep = deptFromPlace(t.l); if (dep && !l.deps.includes(dep)) why = `lieu dans le ${dep}`; }
       else if (l.communes && t.l) { const c = communeFromPlace(t.l); if (c && !l.communes.some((x) => norm(x) === norm(c))) why = `lieu à ${c}`; }
       else if (l.type === "pays" && t.p && norm(t.p) !== norm(l.nom)) why = `pays : ${t.p}`;
