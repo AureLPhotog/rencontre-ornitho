@@ -1,5 +1,5 @@
 // Rencontre Ornitho: router, shell and the read-only screens.
-import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast } from "./util.js";
+import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName } from "./util.js";
 import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
@@ -343,8 +343,8 @@ function taskAct(id, a) {
     const tk = M.tick(t.sid, t.cle); if (!tk) return;
     // the first sighting moves to that day: its place comes from a tick of the same day, or is to be completed
     const same = M.ticks.find((x) => x.e === t.sid && x.d === t.other && x !== tk && (x.lat != null || x.l));
-    const patch = { d: t.other, l: same ? same.l || null : null, lat: same ? same.lat ?? null : null, lon: same ? same.lon ?? null : null };
-    S.apply([{ kind: "set-tick", cle: tk.cle, id: tk.id, patch }, { kind: "set-tache", id, patch: { fait: true } }], `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}, ${fmtShort(t.other)})`);
+    const patch = { d: t.other, l: same ? same.l || null : null, lat: same ? same.lat ?? null : null, lon: same ? same.lon ?? null : null, sl: same ? same.sl || null : null };
+    S.apply([{ kind: "set-tick", cle: tk.cle, id: tk.id, patch, src: "cocheurs" }, { kind: "set-tache", id, patch: { fait: true } }], `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}, ${fmtShort(t.other)})`);
     toast(same ? "Date et lieu repris." : "Date reprise ; le lieu de ce jour-là est à compléter.");
   }
 }
@@ -370,13 +370,13 @@ function screenTodo() {
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
   $$("[data-nocoords]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.nocoords, year: "", miss: "coords" } }); go("#/journal"); }));
-  const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null } }));
+  const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null, sl: x.src.sl || null } }));
   $$("[data-align]").forEach((b) => b.addEventListener("click", () => { const x = c.placeMismatch[+b.dataset.align]; S.apply(alignOps(x), `Lieu aligné : ${M.name(x.src.e)} (${fmtShort(x.src.d)})`); }));
   $$("[data-renum]").forEach((b) => b.addEventListener("click", () => { const cle = b.dataset.renum, mv = M.renumber(cle); S.apply(mv.map((m) => ({ kind: "set-tick", cle, id: m.t.id, patch: { n: m.to } })), `${L(cle).nom} : ${mv.length} coches renumérotées par date`); toast("Numéros remis dans l'ordre des dates."); }));
   const aa = $("#align-all"); if (aa) aa.addEventListener("click", () => { S.apply(c.placeMismatch.flatMap(alignOps), `Lieux alignés : ${c.placeMismatch.length} observations`); toast("Lieux alignés."); });
   $$("[data-addyl]").forEach((b) => b.addEventListener("click", () => {
     const [cle, id] = b.dataset.addyl.split("/"), t = (M.db.coches[cle] || []).find((x) => x.id === id); if (!t) return;
-    const y = yearOf(t.d); const tick = { id: `yl${y}-${Date.now().toString(36)}`, e: t.e, d: t.d }; ["l", "p", "lat", "lon"].forEach((k) => { if (t[k] != null) tick[k] = t[k]; });
+    const y = yearOf(t.d); const tick = { id: `yl${y}-${Date.now().toString(36)}`, e: t.e, d: t.d }; ["l", "p", "lat", "lon", "sd", "sl"].forEach((k) => { if (t[k] != null) tick[k] = t[k]; });
     S.apply({ kind: "add-tick", cle: "yl" + y, tick }, `Ajout : ${M.name(t.e)} (YL ${y})`); toast(`${M.name(t.e)} ajoutée à ${y}.`);
   }));
 }

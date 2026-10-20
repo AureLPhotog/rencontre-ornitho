@@ -1,5 +1,5 @@
 // Import from Faune-France, eBird or cocheurs: read the file, match species, propose what to add or complete.
-import { $, $$, esc, norm, cap, uid, plural, fmtShort, isFrance, yearOf, toast } from "./util.js";
+import { $, $$, esc, norm, cap, uid, plural, fmtShort, isFrance, yearOf, toast, srcName } from "./util.js";
 import { S, M, go } from "./app.js";
 import { PHOTO_FR, LIFERS, VU } from "./model.js";
 import { deptFromPlace, communeFromPlace, deptByName, listCovers, placeAt, distKm } from "./geo.js";
@@ -114,14 +114,14 @@ function propose(obs, source, target) {
     if (!t) {
       const ok = source === "cocheurs" || (isYear ? (scope === "fr" ? hasPF : hasLif) : (l && l.type === "pays") || hasPF);
       push({ kind: "add", cle, sid, o, checked: ok, why: ok ? "nouvelle" : scope === "x" ? "pas encore de lifer photo" : "pas encore de photo France", newList: isYear && !l ? year : null });
-    } else if (!t.d && o.d) push({ kind: "date", cle, sid, o, t, checked: true, why: `date manquante : ${fmtShort(o.d)}` });
-    else if (o.d && t.d && o.d !== t.d) push({ kind: "earlier", cle, sid, o, t, checked: false, why: `${source === "cocheurs" ? "cocheurs" : "première donnée"} ${fmtShort(o.d)} · appli ${fmtShort(t.d)}`, hide: o.d > t.d && source !== "cocheurs" });
-    else if (t.lat == null && o.lat != null) push({ kind: "place", cle, sid, o, t, checked: true, why: "coordonnées manquantes" });
+    } else if (!t.d && o.d) push({ kind: "date", cle, sid, o, t, checked: true, why: `date manquante dans l'appli : ${fmtShort(o.d)}` });
+    else if (o.d && t.d && o.d !== t.d) push({ kind: "earlier", cle, sid, o, t, checked: false, why: `${source === "cocheurs" ? "cocheurs" : "première donnée"} ${fmtShort(o.d)} · appli ${fmtShort(t.d)} (${srcName(t.sd)})`, hide: o.d > t.d && source !== "cocheurs" });
+    else if (t.lat == null && o.lat != null) push({ kind: "place", cle, sid, o, t, checked: true, why: `coordonnées manquantes${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` });
   }
   // ticks of the same species and day, anywhere, without coordinates: the observation gives them
   if (source !== "cocheurs") {
     const byDay = new Map(); valid.forEach((o) => { if (o.d && o.lat != null) byDay.set(o.sid + "|" + o.d, o); });
-    for (const t of M.ticks) if (t.d && t.lat == null) { const o = byDay.get(t.e + "|" + t.d); if (o && !P.some((x) => x.t === t)) push({ kind: "place", cle: t.cle, sid: t.e, o, t, checked: true, why: "coordonnées manquantes, même jour" }); }
+    for (const t of M.ticks) if (t.d && t.lat == null) { const o = byDay.get(t.e + "|" + t.d); if (o && !P.some((x) => x.t === t)) push({ kind: "place", cle: t.cle, sid: t.e, o, t, checked: true, why: `coordonnées manquantes, même jour${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` }); }
   }
   return P.filter((x) => !x.hide);
 }
@@ -201,6 +201,7 @@ function cocheursMissing(ctx) {
   const miss = M.speciesOf(ctx.target).filter((t) => !inFile.has(t.e));
   return miss.length ? `<details class="panel"><summary>${miss.length} ${plural(miss.length, "espèce")} de l'appli absente${miss.length > 1 ? "s" : ""} de ce fichier cocheurs (à saisir dans cocheurs)</summary><ul class="cap">${miss.map((t) => `<li>${esc(M.name(t.e))} · ${t.d ? fmtShort(t.d) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.lat != null ? ` · ${t.lat}, ${t.lon}` : ""}</li>`).join("")}</ul></details>` : "";
 }
+const fixedSpot = (l) => !!(l && l.lieux && l.lieux.length);
 function apply(sel, ctx) {
   if (!sel.length) { toast("Rien de sélectionné."); return; }
   const ops = [], newYears = new Set(), next = {};
@@ -212,9 +213,13 @@ function apply(sel, ctx) {
       const tick = { id: `${p.cle}-${uid()}`, e: p.sid }; if (p.o.d) tick.d = p.o.d;
       if (l && l.numerotee) { next[p.cle] = next[p.cle] || M.nextNum(p.cle); tick.n = next[p.cle]++; }
       Object.entries(place(p.o)).forEach(([k, v]) => { if (v != null && v !== "") tick[k] = v; });
-      ops.push({ kind: "add-tick", cle: p.cle, tick });
-    } else if (p.kind === "date" || p.kind === "earlier") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...(p.t.lat == null || p.kind === "earlier" ? place(p.o) : {}) } });
-    else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: place(p.o) });
+      if (fixedSpot(l) && (tick.l || tick.lat != null)) tick.sl = "fixe";
+      ops.push({ kind: "add-tick", cle: p.cle, tick, src: ctx.src });
+    } else if (p.kind === "date" || p.kind === "earlier") {
+      const pl = p.t.lat == null || p.kind === "earlier" ? place(p.o) : {};
+      if (Object.keys(pl).length && fixedSpot(l)) pl.sl = "fixe";
+      ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...pl }, src: ctx.src });
+    } else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
   }
   const label = { ff: "Import Faune-France", ebird: "Import eBird", cocheurs: `Import cocheurs (${(M.liste.get(ctx.target) || {}).nom})` }[ctx.src];
   S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}`);

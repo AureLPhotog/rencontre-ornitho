@@ -123,7 +123,7 @@ function editForm(el, l) {
       if (st.lieux.length && $("#l-apply") && $("#l-apply").checked) {
         const L2 = { ...l, lieux: st.lieux };
         for (const t of M.ticks.filter((x) => x.cle === l.cle && x.lat == null)) {
-          const f = placeAt(L2, t.d), patch = { l: f.nom || null, lat: f.lat, lon: f.lon, p: null };
+          const f = placeAt(L2, t.d), patch = { l: f.nom || null, lat: f.lat, lon: f.lon, p: null, sl: "fixe" };
           ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch });
           if (t.d) M.ticks.filter((x) => x.e === t.e && x.d === t.d && x !== t).forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch }));
         }
@@ -138,7 +138,7 @@ function editForm(el, l) {
     const ops = [{ kind: "add-liste", liste }];
     if ($("#l-fill").checked && found && found.ticks.length) {
       found.ticks.slice().sort((a, b) => (a.d || "9").localeCompare(b.d || "9")).forEach((t, n) => {
-        const tick = { id: `${cle}-${uid()}`, e: t.e }; ["d", "l", "p", "lat", "lon"].forEach((f) => { if (t[f] != null && t[f] !== "") tick[f] = t[f]; });
+        const tick = { id: `${cle}-${uid()}`, e: t.e }; ["d", "l", "p", "lat", "lon", "sd", "sl"].forEach((f) => { if (t[f] != null && t[f] !== "") tick[f] = t[f]; });
         if (liste.numerotee) tick.n = n + 1; ops.push({ kind: "add-tick", cle, tick });
       });
     }

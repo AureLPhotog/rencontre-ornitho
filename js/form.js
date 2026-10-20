@@ -1,5 +1,5 @@
 // Adding a sighting (with the lists it goes to) and editing one tick.
-import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store } from "./util.js";
+import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName } from "./util.js";
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
@@ -178,7 +178,7 @@ export function renderEdit(view, cle, id) {
   const st = { ...t0 };
   // the same sighting ticked in other lists (same species, same day): they share date and place
   const twins = t0.d ? M.ticks.filter((x) => x.e === t0.e && !(x.cle === cle && x.id === id) && x.d === t0.d) : [];
-  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(M.name(t0.e))}</h1><p class="cap">${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p></header>
+  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(M.name(t0.e))}</h1><p class="cap">${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p>${t0.d || t0.l || t0.lat != null ? `<p class="cap">Source de la date : ${t0.d ? esc(srcName(t0.sd)) : "—"} · du lieu : ${t0.l || t0.lat != null ? esc(srcName(t0.sl)) : "—"}</p>` : ""}</header>
     <form id="ed" class="form">
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d || "")}"></label>${l.numerotee ? `<label>N°<input class="field" type="number" min="1" id="f-n" value="${esc(st.n || "")}"></label>` : `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>`}</div>
       ${l.numerotee ? `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>` : ""}
@@ -211,7 +211,7 @@ export function renderEdit(view, cle, id) {
     const nd = "d" in patch ? patch.d : t0.d;
     if (nd && !st.l && st.lat == null) {
       const src = M.ticks.find((x) => x.e === t0.e && x.d === nd && !(x.cle === cle && x.id === id) && (x.lat != null || x.l));
-      if (src) ops[0].patch = { ...ops[0].patch, l: src.l || null, lat: src.lat ?? null, lon: src.lon ?? null, p: src.p || null };
+      if (src) ops[0].patch = { ...ops[0].patch, l: src.l || null, lat: src.lat ?? null, lon: src.lon ?? null, p: src.p || null, sl: src.sl || null };
     }
     if (st.l && st.lat != null && ("l" in patch || "lat" in patch)) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon } });
     S.apply(ops, `Modification : ${M.name(t0.e)} (${l.nom})`);

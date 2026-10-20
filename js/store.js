@@ -170,13 +170,30 @@ export class Store {
 
   // record changes locally (they show at once), then send them
   apply(ops, label) {
-    ops = (Array.isArray(ops) ? ops : [ops]).map((op) => ({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
+    ops = (Array.isArray(ops) ? ops : [ops]).map((op) => stampSource({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
     this.pending.push(...ops); ops.forEach((op) => applyOp(this.db, op));
     this._save(); this._emit(); this.sync();
   }
   resetCache() { this.files = {}; this.commit = null; this._rebuild(); this._save(); }
 }
 
+// every tick says where its date (sd) and its place (sl) come from: op.src, or a change made in the app
+// (a patch that sets sd or sl itself keeps them)
+const PLACE = ["l", "lat", "lon"];
+function stampSource(op) {
+  const s = op.src || "appli";
+  if (op.kind === "add-tick") {
+    const t = (op.tick = { ...op.tick });
+    if (t.d && !t.sd) t.sd = s;
+    if ((t.l || t.lat != null) && !t.sl) t.sl = s;
+  } else if (op.kind === "set-tick" && op.patch) {
+    const p = (op.patch = { ...op.patch });
+    if ("d" in p && !("sd" in p)) p.sd = p.d ? s : null;
+    if (PLACE.some((k) => k in p) && !("sl" in p)) p.sl = p.l || p.lat != null ? s : null;
+  }
+  delete op.src;
+  return op;
+}
 function commitMessage(ops) {
   const labels = [...new Set(ops.map((o) => o.label).filter(Boolean))];
   const head = labels.length === 1 ? labels[0] : labels.length ? `${labels[0]} (+${labels.length - 1})` : "Mise à jour";
