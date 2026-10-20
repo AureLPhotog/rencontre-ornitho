@@ -1,9 +1,10 @@
 // Keeps the app itself available offline. The data is cached by the app (localStorage), not here.
-const V = "ro-shell-v24";
+const V = "ro-shell-v25";
 const SHELL = ["./", "index.html", "css/app.css?v=12", "js/app.js", "js/store.js", "js/model.js", "js/form.js", "js/map.js", "js/util.js", "js/export.js", "js/geo.js", "js/lists.js", "js/importer.js", "js/taxo.js",
   "icon.svg?v=2", "icon-192.png", "apple-touch-icon.png", "manifest.webmanifest", "vendor/leaflet/leaflet.css", "vendor/leaflet/leaflet.js", "vendor/leaflet/images/marker-icon.png", "vendor/leaflet/images/marker-icon-2x.png", "vendor/leaflet/images/marker-shadow.png", "vendor/leaflet/images/layers.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
-self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
+// only this app's old caches: the site also hosts other apps (Oiseaux d'Ouessant), whose caches must stay
+self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith("ro-shell-") && k !== V && k !== V + "-tiles").map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.hostname === "api.github.com") return; // the database always goes to GitHub
