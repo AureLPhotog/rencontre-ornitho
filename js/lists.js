@@ -6,7 +6,7 @@ import { DEPTS, DEPT, REGIONS, deptsOfRegion, deptFromPlace, communeFromPlace, l
 import { mapPicker } from "./map.js";
 import { fmtShort } from "./util.js";
 
-const TYPES = { dep: "Département", reg: "Région", lieu: "Lieu précis (jardin, réserve…)", pays: "Pays", autre: "Autre" };
+const TYPES = { dep: "Département", reg: "Région", lieu: "Lieu précis (réserve, étang…)", pays: "Pays", autre: "Autre" };
 
 export function screenLists(view) {
   const ls = M.listes.filter((l) => l.type !== "annee");
@@ -36,7 +36,7 @@ function editForm(el, l) {
     <label>Comprise dans<select class="field" id="l-dans">${parentOptions(st.dans, l)}</select></label>
     <div class="row2"><label>Couleur<input class="field" type="color" id="l-col" value="${esc(l ? M.color(l.cle) : "#3B7A57")}"></label>
       <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
-    <div id="l-fixed-w"><span class="lab">Lieu fixe <small>(jardin, bureau… : l'endroit est repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
+    <div id="l-fixed-w"><span class="lab">Lieu <small>(repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
       <ul class="plain" id="l-fixed"></ul>
       <div id="l-addp"></div>
       <div class="row"><button class="btn" type="button" id="p-new">Ajouter un lieu</button></div>
@@ -90,7 +90,8 @@ function editForm(el, l) {
   const showFixed = () => { $("#l-fixed").innerHTML = st.lieux.slice().sort((a, b) => (a.depuis || "").localeCompare(b.depuis || "")).map((p) => `<li class="lrow"><span class="grow"><b>${esc(p.nom || "Sans nom")}</b><small class="cap">${p.depuis ? "depuis le " + fmtShort(p.depuis) : "depuis toujours"} · ${p.lat}, ${p.lon}</small></span><button class="linkish" type="button" data-rmp="${st.lieux.indexOf(p)}">retirer</button></li>`).join("") || '<li class="cap">Aucun lieu fixe.</li>';
     $$("[data-rmp]").forEach((b) => b.addEventListener("click", () => { st.lieux.splice(+b.dataset.rmp, 1); showFixed(); })); };
   const kindNow = () => (kindSel ? kindSel.value : st.kind);
-  const fixedOk = () => !["dep", "reg", "pays"].includes(kindNow());
+  // only the garden and the office have a fixed spot
+  const fixedOk = () => !isNew && ["jardin", "bureau"].includes(l.cle);
   $("#l-fixed-w").hidden = !fixedOk(); if (kindSel) kindSel.addEventListener("change", () => { $("#l-fixed-w").hidden = !fixedOk(); });
   showFixed();
   // the form for a new spot is built only when asked for, so its map is created while visible
