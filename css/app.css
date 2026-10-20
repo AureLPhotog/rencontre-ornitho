@@ -189,3 +189,11 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .qpick{display:flex;flex-wrap:wrap;gap:6px}
 .qpick .qtag{margin:0;font-size:13px;padding:4px 12px;cursor:pointer;opacity:.75}
 .qpick .qtag.on{background:var(--c);color:#fff;border-color:var(--c);opacity:1}
+/* species page: previous / next species of the list */
+.spnav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin:0 0 6px;font-size:14px}
+.spnav-a{display:flex;align-items:center;gap:6px;min-width:0;text-decoration:none;color:var(--kf);font-size:22px;line-height:1;padding:6px 0}
+.spnav-a span{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spnav-a.nx{justify-content:flex-end;text-align:right}
+.spnav-a.off{opacity:.25}
+.spnav-pos{display:flex;flex-direction:column;align-items:center;font-family:var(--f-data);font-size:12px;color:var(--muted)}
+.spnav-pos small{font-size:11px}

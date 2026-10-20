@@ -35,7 +35,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error, "erro
 // ---------- router ----------
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
-  [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
+  [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
   [/^#\/coche\/([\w-]+)\/([\w-]+)$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
@@ -48,7 +48,10 @@ function route(soft) {
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
+let onKey = null; // a screen's keyboard shortcuts (species page: arrows)
+window.addEventListener("keydown", (e) => { if (onKey) onKey(e); });
 function draw(h) {
+  onKey = null;
   for (const [re, fn] of ROUTES) { const m = h.match(re); if (m) { current = h; if (fn !== screenSettings && !S.hasData) { loading(); return; } fn(...m.slice(1)); setNav(h); return; } }
   location.replace("#/");
 }
@@ -59,14 +62,15 @@ function loading() {
 }
 
 // ---------- shared bits ----------
-const nameLink = (sid) => `<a href="#/espece/${esc(sid)}">${esc(M.name(sid))}</a>${qTag((M.esp.get(sid) || {}).q)}`;
+// from: the list the link is shown in, so the species page can go to the previous / next species of that list
+const nameLink = (sid, from) => `<a href="#/espece/${esc(sid)}${from ? "?l=" + encodeURIComponent(from) : ""}">${esc(M.name(sid))}</a>${qTag((M.esp.get(sid) || {}).q)}`;
 const L = (cle) => M.liste.get(cle) || { nom: cle };
 const numOf = (t) => t.n ? `n°${t.n}` : "";
 const cstyle = (cle) => `style="--c:${M.color(cle)}"`;
 const chip = (cle) => `<span class="chip-s" ${cstyle(cle)}>${esc(L(cle).nom)}</span>`;
-function row(t, { rank, showList = false } = {}) {
+function row(t, { rank, showList = false, from } = {}) {
   const place = t.l && t.l !== t.p ? t.l : "";
-  return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${nameLink(t.e)}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
+  return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${nameLink(t.e, from)}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
 }
 
 // ---------- home: the lists ----------
@@ -113,10 +117,11 @@ function screenList(cle) {
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
-    <ul class="ticks" id="rows">${sorted.map((t) => row(t)).join("")}</ul>
+    <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle })).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
-  const filter = () => { const k = norm(q.value); saveUI({ q: q.value }); rows.forEach((li) => { li.hidden = !!k && !M.matches(k, li.textContent); }); };
+  // the species page follows this order (and this search) with its arrows and swipes
+  const filter = () => { const k = norm(q.value); rows.forEach((li) => { li.hidden = !!k && !M.matches(k, li.textContent); }); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: sorted.filter((_, i) => !rows[i].hidden).map((t) => t.e) } }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
 }
@@ -191,8 +196,9 @@ function screenYear(y) {
     ${dated.length ? `<div class="stats"><div class="stat"><span class="k">Jours de coche</span><span class="v">${byDay.size}<small> / ${elapsed} j</small></span><span class="s">${Math.round((byDay.size / elapsed) * 100)} % des jours ${past ? "de l'année" : "écoulés"}</span></div>
       <div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestDay[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestDay[0]))}</span></div>
       <div class="stat"><span class="k">Dernière coche</span><span class="v">${esc(M.name(last.e))}</span><span class="s">n°${last.rank} · ${esc(fmtDay(last.d, false))}</span></div></div>` : ""}
-    ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
+    ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank, from: "yl" + year })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
   </div>`;
+  saveUI({ nav: { key: "yl" + year, nom: `YL ${year}`, ids: [...groups].flatMap(([, ts]) => ts.map((t) => t.e)) } });
   $$("[data-scope]").forEach((b) => b.addEventListener("click", () => { saveUI({ scope: b.dataset.scope }); screenYear(year); }));
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
@@ -259,8 +265,13 @@ function screenJournal() {
 }
 
 // ---------- one species ----------
-function screenSpecies(sid) {
+function screenSpecies(sid, q) {
   const e = M.esp.get(sid); if (!e) return go("#/");
+  // previous / next species of the list we came from (arrows, swipe left or right, keyboard arrows)
+  const from = new URLSearchParams(q || "").get("l"), nav = UI.nav && UI.nav.key === from ? UI.nav : null;
+  const at = nav ? nav.ids.indexOf(sid) : -1, prev = at > 0 ? nav.ids[at - 1] : null, next = at >= 0 && at < nav.ids.length - 1 ? nav.ids[at + 1] : null;
+  const to = (id) => `#/espece/${encodeURIComponent(id)}?l=${encodeURIComponent(from)}`;
+  const navBar = at >= 0 ? `<nav class="spnav" aria-label="Espèces de la liste">${prev ? `<a class="spnav-a" href="${to(prev)}" data-nav="prev" aria-label="Espèce précédente : ${esc(M.name(prev))}">‹<span>${esc(M.name(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.ids.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="${to(next)}" data-nav="next" aria-label="Espèce suivante : ${esc(M.name(next))}"><span>${esc(M.name(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>` : "";
   const m = M.bySp.get(sid) || new Map();
   const st = (e.st || []).map((v, i) => v ? `${["Nicheur", "Hivernant", "De passage", "Occasionnel"][i]} ${esc(v)}` : "").filter(Boolean).join(" · ");
   const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">modifier</a></span>`).join("")}</li>`).join("");
@@ -273,7 +284,7 @@ function screenSpecies(sid) {
     return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: ts.map((t) => `<b>${esc(L(t.cle).nom)}</b>${M.rankOf(t) ? " n°" + M.rankOf(t) : ""} · ${esc(t.d ? fmtShort(t.d) : "")}`).join("<br>") + (ts[0].l ? `<br>${esc(ts[0].l)}` : "") };
   });
   view.innerHTML = `<div class="screen">
-    <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Qualité photo</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}</div></header>
+    ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Qualité photo</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}</div></header>
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
@@ -285,6 +296,16 @@ function screenSpecies(sid) {
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
+  // moving between species replaces the page in the history, so « Retour » goes back to the list
+  const move = (id) => { if (id) { location.replace(to(id)); scrollTo(0, 0); } };
+  $$("[data-nav]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); move(a.dataset.nav === "prev" ? prev : next); }));
+  if (at >= 0) {
+    let x0 = null, y0 = null;
+    const scr = view.firstElementChild;
+    scr.addEventListener("touchstart", (ev) => { if (ev.target.closest(".minimap, input, textarea, details[open]")) { x0 = null; return; } x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY; }, { passive: true });
+    scr.addEventListener("touchend", (ev) => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0, dy = ev.changedTouches[0].clientY - y0; x0 = null; if (Math.abs(dx) > 70 && Math.abs(dy) < 50) move(dx < 0 ? next : prev); }, { passive: true });
+    onKey = (ev) => { if (ev.target.closest("input, textarea, select")) return; if (ev.key === "ArrowLeft") move(prev); if (ev.key === "ArrowRight") move(next); };
+  }
   $$("[data-q]").forEach((b) => b.addEventListener("click", () => { const v = e.q === b.dataset.q ? null : b.dataset.q; S.apply({ kind: "set-espece", id: sid, patch: { q: v } }, `Qualité photo : ${e.n} → ${v || "aucune"}`); toast(v ? `Qualité : ${qualite(v).court}.` : "Qualité retirée."); }));
   $("#names").addEventListener("submit", (ev) => {
     ev.preventDefault();
