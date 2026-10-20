@@ -38,9 +38,7 @@ function editForm(el, l) {
       <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
     <div id="l-fixed-w"><span class="lab">Lieu fixe <small>(jardin, bureau… : l'endroit est repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
       <ul class="plain" id="l-fixed"></ul>
-      <div class="panel" id="l-addp" hidden><div class="row2"><label>Depuis le <small>(vide = depuis toujours)</small><input class="field" type="date" id="p-depuis"></label><label>Nom du lieu<input class="field" id="p-nom" placeholder="Maison, Bureau IVECO…"></label></div>
-        <div class="mapbox" id="p-map"></div><p class="cap" id="p-coords">Touche la carte, ou ◎ pour ta position.</p>
-        <div class="row"><button class="btn" type="button" id="p-ok">Ajouter ce lieu</button></div></div>
+      <div id="l-addp"></div>
       <div class="row"><button class="btn" type="button" id="p-new">Ajouter un lieu</button></div>
       ${!isNew ? `<label class="chk"><input type="checkbox" id="l-apply" checked> Placer les coches de cette liste qui n'ont pas de coordonnées, et la même observation dans les autres listes</label>` : ""}</div>
     ${isNew ? `<label class="chk"><input type="checkbox" id="l-fill" checked> Remplir avec les coches que j'ai déjà dans ce secteur</label><p class="cap" id="l-prev"></p>` : ""}
@@ -95,16 +93,22 @@ function editForm(el, l) {
   const fixedOk = () => !["dep", "reg", "pays"].includes(kindNow());
   $("#l-fixed-w").hidden = !fixedOk(); if (kindSel) kindSel.addEventListener("change", () => { $("#l-fixed-w").hidden = !fixedOk(); });
   showFixed();
+  // the form for a new spot is built only when asked for, so its map is created while visible
   let np = null, pmap = null;
   $("#p-new").addEventListener("click", () => {
-    $("#l-addp").hidden = false; $("#p-new").hidden = true; np = { lat: null, lon: null };
-    if (!pmap) pmap = mapPicker($("#p-map"), {}, (lat, lon) => { if (lat == null) return; np.lat = lat; np.lon = lon; $("#p-coords").textContent = `${lat}, ${lon}`; });
-  });
-  $("#p-ok").addEventListener("click", () => {
-    if (!np || np.lat == null) { toast("Place le point sur la carte."); return; }
-    st.lieux.push({ depuis: $("#p-depuis").value || null, nom: $("#p-nom").value.trim() || nomIn.value.trim(), lat: np.lat, lon: np.lon });
-    st.lieux.forEach((p) => { if (!p.depuis) delete p.depuis; });
-    $("#l-addp").hidden = true; $("#p-new").hidden = false; showFixed();
+    $("#l-addp").innerHTML = `<div class="panel"><div class="row2"><label>Depuis le <small>(vide = depuis toujours)</small><input class="field" type="date" id="p-depuis"></label><label>Nom du lieu<input class="field" id="p-nom" placeholder="Maison, Bureau IVECO…"></label></div>
+      <div class="mapbox" id="p-map"></div><p class="cap" id="p-coords">Touche la carte, ou ◎ pour ta position.</p>
+      <div class="row"><button class="btn btn-primary" type="button" id="p-ok">Ajouter ce lieu</button><button class="btn" type="button" id="p-x">Annuler</button></div></div>`;
+    $("#p-new").style.display = "none"; np = { lat: null, lon: null };
+    pmap = mapPicker($("#p-map"), {}, (lat, lon) => { if (lat == null) { toast("Position refusée ou introuvable."); return; } np.lat = lat; np.lon = lon; $("#p-coords").textContent = `${lat}, ${lon}`; });
+    const close = () => { if (pmap) pmap.destroy(); pmap = null; $("#l-addp").innerHTML = ""; $("#p-new").style.display = ""; };
+    $("#p-x").addEventListener("click", close);
+    $("#p-ok").addEventListener("click", () => {
+      if (np.lat == null) { toast("Place le point sur la carte."); return; }
+      st.lieux.push({ depuis: $("#p-depuis").value || null, nom: $("#p-nom").value.trim() || nomIn.value.trim(), lat: np.lat, lon: np.lon });
+      st.lieux.forEach((p) => { if (!p.depuis) delete p.depuis; });
+      close(); showFixed();
+    });
   });
   $("#l-cancel").addEventListener("click", () => { el.innerHTML = ""; });
   $("#lf").addEventListener("submit", (e) => {
