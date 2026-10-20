@@ -115,7 +115,7 @@ function propose(obs, source, target) {
       const ok = source === "cocheurs" || (isYear ? (scope === "fr" ? hasPF : hasLif) : (l && l.type === "pays") || hasPF);
       push({ kind: "add", cle, sid, o, checked: ok, why: ok ? "nouvelle" : scope === "x" ? "pas encore de lifer photo" : "pas encore de photo France", newList: isYear && !l ? year : null });
     } else if (!t.d && o.d) push({ kind: "date", cle, sid, o, t, checked: true, why: `date manquante dans l'appli : ${fmtShort(o.d)}` });
-    else if (o.d && t.d && o.d !== t.d) push({ kind: "earlier", cle, sid, o, t, checked: false, why: `${source === "cocheurs" ? "cocheurs" : "première donnée"} ${fmtShort(o.d)} · appli ${fmtShort(t.d)} (${srcName(t.sd)})`, hide: o.d > t.d && source !== "cocheurs" });
+    else if (o.d && t.d && o.d !== t.d) push({ kind: "earlier", cle, sid, o, t, checked: false, why: `${source === "cocheurs" ? "cocheurs" : "première donnée"} ${fmtShort(o.d)} · appli ${fmtShort(t.d)} (${srcName(t.sd)})`, hide: o.d > t.d && source !== "cocheurs", later: o.d > t.d });
     else if (t.lat == null && o.lat != null) push({ kind: "place", cle, sid, o, t, checked: true, why: `coordonnées manquantes${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` });
   }
   // ticks of the same species and day, anywhere, without coordinates: the observation gives them
@@ -129,7 +129,7 @@ function propose(obs, source, target) {
     }
     for (const t of M.ticks) if (t.d && t.lat == null) { const o = byDay.get(t.e + "|" + t.d); if (o && !P.some((x) => x.t === t)) push({ kind: "place", cle: t.cle, sid: t.e, o, t, checked: true, why: `coordonnées manquantes, même jour${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` }); }
   }
-  return P.filter((x) => !x.hide);
+  return P; // hidden ones (a later first sighting) are not offered, but go to the to-do list as date differences
 }
 
 // ---------- screen ----------
@@ -167,7 +167,9 @@ function run(ctx) {
   const match = matcher(); ctx.unknown = new Map();
   ctx.obs.forEach((o) => { o.sid = match(o.name, o.sci); if (!o.sid) { const k = cap(unent(o.name)); const u = ctx.unknown.get(k) || { n: 0, sci: unent(o.sci || "").trim() }; u.n++; ctx.unknown.set(k, u); } });
   const msg = $("#imp-msg"); msg.className = "msg ok"; msg.textContent = `${ctx.obs.length} ${plural(ctx.obs.length, "ligne")} lues, ${ctx.obs.filter((o) => o.sid).length} reconnues.`;
-  review($("#imp-res"), propose(ctx.obs, ctx.src, ctx.target), ctx);
+  ctx.all = propose(ctx.obs, ctx.src, ctx.target);
+  if (window.__roDebug) window.__roDebug.ctx = ctx;
+  review($("#imp-res"), ctx.all.filter((x) => !x.hide), ctx);
 }
 const KIND = { add: "Ajouter", date: "Dater", earlier: "Date différente", place: "Localiser", name: "Nommer le lieu" };
 function review(el, props, ctx) {
@@ -184,7 +186,7 @@ function review(el, props, ctx) {
     ${props.length ? order.map((cle) => { const g = groups.get(cle); return `<section class="panel"><div class="row between"><h3 class="minor" style="margin:0"><span class="chip-s" style="--c:${M.color(cle) || "#9A7400"}">${esc(nom(cle))}</span> ${g.length} ${plural(g.length, "proposition")}</h3><button type="button" class="linkish" data-all="${cle}">tout cocher / décocher</button></div>
       <div class="props">${g.slice(0, 400).map(line).join("")}${g.length > 400 ? `<p class="cap">… et ${g.length - 400} autres, comptées si le groupe est coché.</p>` : ""}</div></section>`; }).join("")
       + `<div class="row sticky-act"><button class="btn btn-primary btn-lg" id="imp-go" type="button">Enregistrer la sélection</button><span class="cap" id="imp-count"></span></div>`
-      : `<p class="empty">Rien à ajouter ni à compléter : l'appli a déjà tout ce que contient ce fichier.</p>`}`;
+      : `<p class="empty">Rien à ajouter ni à compléter : l'appli a déjà tout ce que contient ce fichier.</p>${ctx.src !== "cocheurs" ? `<div class="row"><button class="btn btn-primary" id="imp-go" type="button">Garder ces données pour les vérifications</button></div>` : ""}`}`;
   const byId = new Map(props.map((p) => [String(p.id), p])); // ids are not positions: hidden proposals were filtered out
   const count = () => { const n = props.filter((p) => p.checked).length; const c = $("#imp-count"); if (c) c.textContent = `${n} ${plural(n, "changement")} sélectionné${n > 1 ? "s" : ""}`; };
   $$("[data-p]", el).forEach((i) => i.addEventListener("change", () => { byId.get(i.dataset.p).checked = i.checked; count(); }));
@@ -208,9 +210,23 @@ function cocheursMissing(ctx) {
   return miss.length ? `<details class="panel"><summary>${miss.length} ${plural(miss.length, "espèce")} de l'appli absente${miss.length > 1 ? "s" : ""} de ce fichier cocheurs (à saisir dans cocheurs)</summary><ul class="cap">${miss.map((t) => `<li>${esc(M.name(t.e))} · ${t.d ? fmtShort(t.d) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.lat != null ? ` · ${t.lat}, ${t.lon}` : ""}</li>`).join("")}</ul></details>` : "";
 }
 const fixedSpot = (l) => !!(l && l.lieux && l.lieux.length);
+// the file's sightings, one per species and day, merged into what earlier imports gave: the to-do list compares
+// the app's dates with them (a date the source does not have, while it has the species a few days apart)
+export function digest(obs, old) {
+  const sp = {}; Object.entries((old && old.especes) || {}).forEach(([e, a]) => { sp[e] = new Map(a.map((x) => [x[0], x])); });
+  for (const o of obs) {
+    if (!o.sid || !o.d) continue;
+    const m = (sp[o.sid] = sp[o.sid] || new Map()), cur = m.get(o.d);
+    if (!cur || (!cur[1] && o.l)) m.set(o.d, [o.d, o.l || "", o.lat != null ? +o.lat.toFixed(5) : null, o.lon != null ? +o.lon.toFixed(5) : null]);
+  }
+  const especes = {}; Object.keys(sp).sort().forEach((e) => { especes[e] = [...sp[e].values()].sort((a, b) => a[0].localeCompare(b[0])); });
+  return { maj: new Date().toISOString().slice(0, 10), especes };
+}
 function apply(sel, ctx) {
-  if (!sel.length) { toast("Rien de sélectionné."); return; }
-  const ops = [], newYears = new Set(), next = {};
+  const keepSrc = ctx.src === "ff" || ctx.src === "ebird";
+  if (!sel.length && !keepSrc) { toast("Rien de sélectionné."); return; }
+  const ops = [], newYears = new Set(), next = {}, done = new Set();
+  if (keepSrc) ops.push({ kind: "set-source", source: ctx.src, data: digest(ctx.obs, M.db.sources[ctx.src]), label: `Données ${ctx.src === "ff" ? "Faune-France" : "eBird"} gardées pour les vérifications` });
   const place = (o) => ({ l: o.l || null, lat: o.lat, lon: o.lon, p: o.p || null });
   for (const p of sel.slice().sort((a, b) => (a.o.d || "9").localeCompare(b.o.d || "9"))) {
     const l = M.liste.get(p.cle);
@@ -225,11 +241,14 @@ function apply(sel, ctx) {
       const pl = p.t.lat == null || p.kind === "earlier" ? place(p.o) : {};
       if (Object.keys(pl).length && fixedSpot(l)) pl.sl = "fixe";
       ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...pl }, src: ctx.src });
+      // same species, same old date in other lists: the same observation, it moves with it (dates stay linked)
+      if (p.t.d) M.ticks.filter((x) => x.e === p.t.e && x.d === p.t.d && x !== p.t && !sel.some((q) => q.t === x) && !done.has(x))
+        .forEach((x) => { done.add(x); ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: { d: p.o.d, ...(Object.keys(pl).length && !fixedSpot(M.liste.get(x.cle)) ? (({ sl, ...r }) => r)(pl) : {}) }, src: ctx.src }); });
     } else if (p.kind === "name") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src });
     else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
   }
   const label = { ff: "Import Faune-France", ebird: "Import eBird", cocheurs: `Import cocheurs (${(M.liste.get(ctx.target) || {}).nom})` }[ctx.src];
   S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}`);
-  toast(`${sel.length} ${plural(sel.length, "changement")} enregistré${sel.length > 1 ? "s" : ""}.`);
-  go("#/journal");
+  toast(`${sel.length} ${plural(sel.length, "changement")} enregistré${sel.length > 1 ? "s" : ""}.${keepSrc ? " Les dates du fichier servent maintenant aux vérifications de « À faire »." : ""}`);
+  go(keepSrc ? "#/a-faire" : "#/journal");
 }

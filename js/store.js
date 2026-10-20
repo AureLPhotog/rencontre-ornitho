@@ -15,8 +15,11 @@ export class GitHubError extends Error { constructor(status, message) { super(me
 const P = { listes: "data/listes.json", especes: "data/especes.json", lieux: "data/lieux.json", taches: "data/a-faire.json" };
 const cochesPath = (cle) => `data/coches/${cle}.json`;
 const cleOfPath = (path) => (path.match(/^data\/coches\/([a-z0-9-]+)\.json$/) || [])[1];
+// what an outside source (Faune-France, eBird) says, kept from the last import: species -> [[date, place, lat, lon], …]
+const sourcePath = (k) => `data/sources/${k}.json`;
+const srcOfPath = (path) => (path.match(/^data\/sources\/([a-z0-9-]+)\.json$/) || [])[1];
 
-function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {} }; }
+function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {} }; }
 function dbFromFiles(files) {
   const db = emptyDb();
   for (const [path, f] of Object.entries(files)) {
@@ -25,6 +28,7 @@ function dbFromFiles(files) {
     else if (path === P.especes) db.especes = j.especes || [];
     else if (path === P.lieux) db.lieux = j.lieux || [];
     else if (path === P.taches) db.taches = j.taches || [];
+    else if (srcOfPath(path)) db.sources[srcOfPath(path)] = j;
     else { const cle = cleOfPath(path); if (cle) db.coches[cle] = j.coches || []; }
   }
   db.listes.forEach((l) => { if (!db.coches[l.cle]) db.coches[l.cle] = []; });
@@ -35,6 +39,8 @@ function fileText(db, path) {
   if (path === P.especes) return stringifyRows({ version: 1 }, "especes", db.especes);
   if (path === P.lieux) return stringifyRows({ version: 1 }, "lieux", db.lieux);
   if (path === P.taches) return stringifyRows({ version: 1 }, "taches", db.taches);
+  const k = srcOfPath(path);
+  if (k) { const s = db.sources[k] || {}, sp = s.especes || {}; return `{"version":1,"source":${JSON.stringify(k)},"maj":${JSON.stringify(s.maj || "")},"especes":{\n${Object.keys(sp).sort().map((e) => JSON.stringify(e) + ":" + JSON.stringify(sp[e])).join(",\n")}\n}}\n`; }
   const cle = cleOfPath(path); return stringifyRows({ liste: cle }, "coches", db.coches[cle] || []);
 }
 
@@ -48,6 +54,7 @@ export function opFiles(op) {
     case "add-espece": case "set-espece": return [P.especes];
     case "add-lieu": return [P.lieux];
     case "set-tache": case "add-tache": return [P.taches];
+    case "set-source": return [sourcePath(op.source)];
     default: return [];
   }
 }
@@ -64,6 +71,7 @@ export function applyOp(db, op) {
     case "add-lieu": { db.lieux = db.lieux.filter((l) => l.nom !== op.lieu.nom); db.lieux.unshift({ ...op.lieu }); db.lieux = db.lieux.slice(0, 400); break; }
     case "add-tache": if (!db.taches.some((t) => t.id === op.tache.id)) db.taches.push({ ...op.tache }); break;
     case "set-tache": { const t = db.taches.find((x) => x.id === op.id); if (t) patchObj(t, op.patch); break; }
+    case "set-source": db.sources[op.source] = op.data; break;
   }
   return db;
 }

@@ -137,6 +137,25 @@ export function buildModel(db) {
       if (src.lat == null && !src.l) continue;
       out.placeMismatch.push({ src, others: ts.filter((t) => t !== src && key(t) !== key(src)) });
     }
+    // a date that Faune-France / eBird do not have, while they have the species a few days apart: one row per
+    // observation (species and day), all its lists together; « garder » marks the ticks (vf = the date checked)
+    out.srcDate = [];
+    const SRC = Object.entries(db.sources || {}), DAY = 864e5, groups = new Map();
+    if (SRC.length) for (const t of M.ticks) {
+      if (!t.d || t.cle === VU || /^(vu|entendu)/i.test(t.t || "") || t.vf === t.d) continue;
+      let near = null, gap = 41, sameDay = null; // up to 40 days: a slip of one month (02/05 for 02/06) is common
+      for (const [src, s] of SRC) for (const x of (s.especes || {})[t.e] || []) {
+        const g = Math.abs(Date.parse(x[0]) - Date.parse(t.d)) / DAY, at = { src, d: x[0], l: x[1], lat: x[2], lon: x[3] };
+        if (g === 0) { if (!sameDay || at.lat == null || t.lat == null || distKm(at, t) < distKm(sameDay, t)) sameDay = at; }
+        else if (g < gap) { gap = g; near = at; }
+      }
+      // the same day in the source: fine, unless the app puts it more than 10 km from where the source says
+      if (sameDay) { if (t.lat == null || sameDay.lat == null || distKm(sameDay, t) <= 20) continue; near = sameDay; gap = 0; }
+      if (!near) continue;
+      const k = t.e + "|" + t.d + "|" + (gap === 0 ? "lieu" : "date");
+      if (!groups.has(k)) groups.set(k, { e: t.e, d: t.d, ticks: [], near, gap, lieu: gap === 0, km: gap === 0 ? Math.round(distKm(near, t)) : null }); groups.get(k).ticks.push(t);
+    }
+    out.srcDate = [...groups.values()].sort((a, b) => a.gap - b.gap || a.d.localeCompare(b.d));
     out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);
     return out;
   };
