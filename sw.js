@@ -1,0 +1,18 @@
+// Keeps the app itself available offline. The data is cached by the app (localStorage), not here.
+const V = "ro-shell-v1";
+const SHELL = ["./", "index.html", "css/app.css", "js/app.js", "js/store.js", "js/model.js", "js/form.js", "js/map.js", "js/util.js", "js/export.js",
+  "icon.svg", "icon-192.png", "manifest.webmanifest", "vendor/leaflet/leaflet.css", "vendor/leaflet/leaflet.js", "vendor/leaflet/images/marker-icon.png", "vendor/leaflet/images/marker-icon-2x.png", "vendor/leaflet/images/marker-shadow.png", "vendor/leaflet/images/layers.png"];
+self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
+self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
+self.addEventListener("fetch", (e) => {
+  const u = new URL(e.request.url);
+  if (e.request.method !== "GET" || u.hostname === "api.github.com") return; // the database always goes to GitHub
+  const tile = /tile\.openstreetmap|geopf\.fr|arcgisonline/.test(u.hostname);
+  // app files: network first (fresh after an update), cache when offline; map tiles: cache first
+  e.respondWith((tile ? caches.match(e.request).then((r) => r || fetchAndKeep(e.request, true)) : fetchAndKeep(e.request).catch(() => caches.match(e.request))));
+});
+async function fetchAndKeep(req, isTile) {
+  const res = await fetch(req);
+  if (res.ok || res.type === "opaque") { const c = await caches.open(isTile ? V + "-tiles" : V); c.put(req, res.clone()); }
+  return res;
+}

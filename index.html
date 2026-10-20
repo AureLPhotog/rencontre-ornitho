@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rencontre Ornitho</title>
+<meta name="description" content="Mes listes d'oiseaux : lifers, photo France, régions, year lists.">
+<meta name="theme-color" content="#0A7895">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600;7..72,800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="icon.svg#bird"/></svg><span>Rencontre Ornitho</span></a>
+  <button class="status" id="status" type="button" data-state="idle"><span class="dot"></span><span class="status-text"></span></button>
+</header>
+<main id="view" class="wrap"></main>
+<nav id="nav" aria-label="Navigation">
+  <a href="#/"><span class="ic">☰</span>Listes</a>
+  <a href="#/annee"><span class="ic">◷</span>Année</a>
+  <a href="#/ajout" class="add" aria-label="Ajouter une observation"><span class="ic">＋</span></a>
+  <a href="#/journal"><span class="ic">≡</span>Journal</a>
+  <a href="#/plus"><span class="ic">…</span>Plus</a>
+</nav>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

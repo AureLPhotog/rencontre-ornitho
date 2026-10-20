@@ -1,0 +1,135 @@
+// Everything the screens show is derived here from the raw database (lists, species, ticks).
+import { norm, isFrance, yearOf } from "./util.js";
+
+export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
+const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || (a.d || "").localeCompare(b.d || "") || ((a.n || 0) - (b.n || 0));
+
+export function buildModel(db) {
+  const M = { db };
+  M.listes = db.listes.slice();
+  M.liste = new Map(M.listes.map((l) => [l.cle, l]));
+  M.children = new Map(); M.listes.forEach((l) => { if (l.dans) { if (!M.children.has(l.dans)) M.children.set(l.dans, []); M.children.get(l.dans).push(l.cle); } });
+  M.esp = new Map(db.especes.map((e) => [e.id, e]));
+  M.years = M.listes.filter((l) => l.type === "annee").map((l) => l.annee).sort((a, b) => a - b);
+
+  // ticks, each knowing its list
+  M.ticks = [];
+  M.bySp = new Map(); // sid -> Map(cle -> [ticks])
+  for (const l of M.listes) for (const t of db.coches[l.cle] || []) {
+    const x = { ...t, cle: l.cle };
+    M.ticks.push(x);
+    if (!M.bySp.has(t.e)) M.bySp.set(t.e, new Map());
+    const m = M.bySp.get(t.e); if (!m.has(l.cle)) m.set(l.cle, []); m.get(l.cle).push(x);
+  }
+  M.bySp.forEach((m) => m.forEach((a) => a.sort(byDate)));
+  M.inList = (sid, cle) => !!(M.bySp.get(sid) && M.bySp.get(sid).has(cle));
+  M.tick = (sid, cle) => (M.bySp.get(sid) && M.bySp.get(sid).get(cle) || [])[0] || null;
+  M.name = (sid) => (M.esp.get(sid) || {}).n || sid;
+  M.chain = (cle) => { const out = []; let c = cle; const seen = new Set(); while (c && !seen.has(c)) { seen.add(c); out.push(c); c = (M.liste.get(c) || {}).dans; } return out; };
+  M.descendants = (cle) => { const out = []; const walk = (c) => (M.children.get(c) || []).forEach((k) => { out.push(k); walk(k); }); walk(cle); return out; };
+
+  // species of a list, one entry per species (its first tick)
+  M.speciesOf = (cle) => {
+    const seen = new Map();
+    for (const t of (db.coches[cle] || []).slice().sort(byDate)) if (!seen.has(t.e)) seen.set(t.e, { ...t, cle });
+    return [...seen.values()];
+  };
+  M.count = (cle) => new Set((db.coches[cle] || []).map((t) => t.e)).size;
+  M.nextNum = (cle) => Math.max(0, ...(db.coches[cle] || []).map((t) => t.n || 0)) + 1;
+
+  // year list: first tick of each species in the year, in France only or anywhere
+  M.yearList = (year, scope) => {
+    const l = M.liste.get("yl" + year); if (!l) return [];
+    const ticks = (db.coches[l.cle] || []).filter((t) => scope === "monde" || isFrance(t.p)).slice().sort(byDate);
+    const seen = new Set(), out = [];
+    for (const t of ticks) if (!seen.has(t.e)) { seen.add(t.e); out.push({ ...t, cle: l.cle }); }
+    return out.map((t, i) => ({ ...t, rank: i + 1 }));
+  };
+
+  // seen or heard without a photo: still open until the species is photographed (in France for a French sighting)
+  M.vuOpen = () => {
+    const fr = [], ab = [];
+    for (const t of M.speciesOf(VU)) {
+      if (isFrance(t.p)) { if (!M.inList(t.e, PHOTO_FR)) fr.push(t); }
+      else if (!M.inList(t.e, LIFERS)) ab.push(t);
+    }
+    return { fr, ab };
+  };
+
+  // search index (names and other names)
+  M.index = db.especes.map((e) => ({ e, keys: [norm(e.n), ...(e.al || []).map(norm), norm(e.sc)].filter(Boolean) }));
+  M.search = (q, limit = 12) => {
+    const k = norm(q); if (!k) return [];
+    const words = k.split(" ");
+    const scored = [];
+    for (const { e, keys } of M.index) {
+      let best = -1;
+      for (const key of keys) {
+        if (key === k) best = Math.max(best, 100);
+        else if (key.startsWith(k)) best = Math.max(best, 80);
+        else if (words.every((w) => key.split(" ").some((p) => p.startsWith(w)))) best = Math.max(best, 60);
+        else if (key.includes(k)) best = Math.max(best, 40);
+      }
+      if (best >= 0) scored.push({ e, s: best + (M.bySp.has(e.id) ? 10 : 0) });
+    }
+    return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
+  };
+
+  // Photo France ticks by calendar day, all years together
+  M.calendar = () => {
+    const days = new Map();
+    for (const t of db.coches[PHOTO_FR] || []) if (t.d) { const k = t.d.slice(5); if (!days.has(k)) days.set(k, []); days.get(k).push({ ...t, cle: PHOTO_FR }); }
+    return days;
+  };
+
+  // what is still missing or inconsistent
+  M.checks = () => {
+    const out = { nested: [], yearMissing: [], undated: [], noCoords: new Map() };
+    for (const l of M.listes) if (l.dans) {
+      for (const t of M.speciesOf(l.cle)) if (!M.inList(t.e, l.dans)) out.nested.push({ t, liste: l.cle, parent: l.dans });
+    }
+    for (const t of M.ticks) {
+      if (!t.d && !["jardin", "bureau"].includes(t.cle)) out.undated.push(t);
+      if (t.lat == null) out.noCoords.set(t.cle, (out.noCoords.get(t.cle) || 0) + 1);
+      const y = yearOf(t.d), yl = y && M.liste.get("yl" + y);
+      if (yl && t.cle !== yl.cle && !M.inList(t.e, yl.cle) && !out.yearMissing.some((x) => x.t.e === t.e && x.year === y)) out.yearMissing.push({ t, year: y });
+    }
+    return out;
+  };
+  return M;
+}
+
+// which lists a new sighting should go to, and with which number
+// photo: photographed?  zone: the most precise place list chosen (or null)  country: "" for France
+export function suggest(M, sid, { photo, zone, country, date }) {
+  const fr = isFrance(country), out = [], year = yearOf(date);
+  const known = sid && M.bySp.has(sid);
+  const has = (cle) => !!sid && M.inList(sid, cle);
+  const add = (cle, why, checked = true) => { if (!M.liste.has(cle) && !cle.startsWith("yl")) return; if (out.some((x) => x.cle === cle)) return; out.push({ cle, why, checked, already: has(cle) }); };
+  const hasPhotoFr = has(PHOTO_FR) || (photo && fr);
+  if (photo) add(LIFERS, has(LIFERS) ? "déjà lifer" : "nouveau lifer", !has(LIFERS));
+  if (photo && fr) add(PHOTO_FR, has(PHOTO_FR) ? "déjà en photo France" : "nouvelle coche photo France", !has(PHOTO_FR));
+  if (fr && zone) {
+    // the chosen place list and every list that contains it, up to Photo France
+    for (const cle of M.chain(zone)) {
+      if (cle === PHOTO_FR || cle === LIFERS) break;
+      add(cle, has(cle) ? "déjà cochée" : hasPhotoFr ? "nouvelle" : "pas encore de photo France", !has(cle) && hasPhotoFr);
+    }
+  }
+  if (!fr) {
+    const cl = M.listes.find((l) => l.type === "pays" && country && l.nom.toLowerCase() === String(country).toLowerCase());
+    if (cl) add(cl.cle, has(cl.cle) ? "déjà cochée" : "nouvelle", !has(cl.cle));
+  }
+  if (year) {
+    const cle = "yl" + year, l = M.liste.get(cle);
+    const inYearHere = !!sid && (M.bySp.get(sid) && (M.bySp.get(sid).get(cle) || []).some((t) => fr ? isFrance(t.p) : true));
+    const okNoPhoto = fr ? has(PHOTO_FR) : has(LIFERS);
+    out.push({ cle, why: inYearHere ? `déjà dans ${year}` : l ? `nouvelle pour ${year}` : `crée la year list ${year}`, checked: !inYearHere && (photo || okNoPhoto), already: inYearHere, year });
+  }
+  if (!photo) {
+    const open = fr ? !has(PHOTO_FR) : !has(LIFERS);
+    add(VU, open ? "pas encore photographiée" + (fr ? " en France" : "") : "déjà photographiée", open && !has(VU));
+  }
+  out.forEach((x) => { const l = M.liste.get(x.cle); if (l && l.numerotee) x.num = M.nextNum(x.cle); });
+  return { list: out, known };
+}
