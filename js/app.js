@@ -207,8 +207,8 @@ async function nameFor(t) {
   if (best) return { l: best.l, sl: best.sl || null };
   for (const x of M.db.lieux || []) if (x.lat != null && distKm(x, t) < 0.3) return { l: x.nom, sl: "appli" };
   const w = await whereIs(t.lat, t.lon);
-  const ld = w && w.fr ? await lieuDit(t.lat, t.lon) : null;
-  if (ld && w.commune) return { l: `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})`, sl: "ign" };
+  const ld = !w || w.fr || w.mer ? await lieuDit(t.lat, t.lon, w && w.commune) : null;
+  if (ld) return { l: w && w.commune ? `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})` : ld.name, sl: "ign" };
   if (w && w.commune) return { l: w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune, sl: "geo" };
   if (w && w.pays && !w.mer) return { l: w.pays, sl: "geo" };
   return null;

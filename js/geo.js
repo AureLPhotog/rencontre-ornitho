@@ -93,18 +93,23 @@ const LD_LAYERS = ["lieu_dit_non_habite", "zone_d_habitation", "plan_d_eau", "de
 const LD_SKIP = new Set(["Ile", "Île", "Montagne", "Plaine", "Massif"]);
 const ringsOf = (g) => g.type === "Polygon" ? [g.coordinates[0]] : g.type === "MultiPolygon" ? g.coordinates.map((p) => p[0]) : [];
 const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
-export async function lieuDit(lat, lon) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function getJson(u) { // the service refuses bursts: retry a little later
+  for (let k = 0; k < 3; k++) { try { const r = await fetch(u); if (r.ok) return await r.json(); } catch (_) {} await sleep(600 * (k + 1)); }
+  return null;
+}
+// commune: its own name is skipped (the town itself), so that a finer name wins
+export async function lieuDit(lat, lon, commune) {
   const d = 0.015, bbox = `${lat - d},${lon - d},${lat + d},${lon + d},urn:ogc:def:crs:EPSG::4326`;
-  const all = await Promise.all(LD_LAYERS.map(async (layer) => {
-    try {
-      const r = await fetch(`https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:${layer}&outputFormat=application/json&COUNT=200&BBOX=${bbox}`);
-      return ((await r.json()).features || []).map((f) => ({ layer, f }));
-    } catch (_) { return null; }
-  }));
-  if (all.every((x) => x === null)) return null; // no network
+  const all = []; let ok = 0;
+  for (const layer of LD_LAYERS) {
+    const j = await getJson(`https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:${layer}&outputFormat=application/json&COUNT=200&BBOX=${bbox}`);
+    if (j) { ok++; (j.features || []).forEach((f) => all.push({ layer, f })); }
+  }
+  if (!ok) return null; // no network
   let best = null;
-  for (const { layer, f } of all.flat().filter(Boolean)) {
-    const name = f.properties && f.properties.toponyme, g = f.geometry; if (!name || !g || LD_SKIP.has(f.properties.nature)) continue;
+  for (const { layer, f } of all) {
+    const name = f.properties && f.properties.toponyme, g = f.geometry; if (!name || !g || LD_SKIP.has(f.properties.nature) || (commune && norm(name) === norm(commune))) continue;
     let km;
     if (g.type === "Point") km = distKm({ lat, lon }, { lat: g.coordinates[1], lon: g.coordinates[0] });
     else { const rs = ringsOf(g); if (!rs.length) continue; km = rs.some((r) => inRing(r, lon, lat)) ? 0 : Math.min(...rs.flat().map(([x, y]) => distKm({ lat, lon }, { lat: y, lon: x }))); }

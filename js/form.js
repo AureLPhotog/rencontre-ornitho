@@ -104,7 +104,7 @@ export function renderAdd(view, q) {
       if (!st.l && w.commune) {
         const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; st.l = `${w.commune}${w.dep ? ` (${w.dep})` : ""}`; $("#f-lieu").value = st.l; const auto = st.l;
         // then the IGN lieu-dit, if the name was not typed meanwhile
-        lieuDit(at.lat, at.lon).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) { st.l = `${ld.name} (${com})`; $("#f-lieu").value = st.l; } });
+        lieuDit(at.lat, at.lon, w.commune).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) { st.l = `${ld.name} (${com})`; $("#f-lieu").value = st.l; } });
       }
     } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; if (!st.l && w.commune) { st.l = w.commune; $("#f-lieu").value = st.l; } }
     refresh();
