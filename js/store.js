@@ -44,6 +44,7 @@ export function opFiles(op) {
   switch (op.kind) {
     case "add-tick": case "set-tick": case "del-tick": return [cochesPath(op.cle)];
     case "add-liste": return [P.listes, cochesPath(op.liste.cle)];
+    case "set-liste": return [P.listes];
     case "add-espece": case "set-espece": return [P.especes];
     case "add-lieu": return [P.lieux];
     case "set-tache": case "add-tache": return [P.taches];
@@ -57,6 +58,7 @@ export function applyOp(db, op) {
     case "set-tick": { const t = (db.coches[op.cle] || []).find((x) => x.id === op.id); if (t) patchObj(t, op.patch); break; }
     case "del-tick": { const a = db.coches[op.cle]; if (a) db.coches[op.cle] = a.filter((t) => t.id !== op.id); break; }
     case "add-liste": if (!db.listes.some((l) => l.cle === op.liste.cle)) { db.listes.push({ ...op.liste }); db.coches[op.liste.cle] = db.coches[op.liste.cle] || []; } break;
+    case "set-liste": { const l = db.listes.find((x) => x.cle === op.cle); if (l) patchObj(l, op.patch); break; }
     case "add-espece": if (!db.especes.some((e) => e.id === op.espece.id)) { db.especes.push({ ...op.espece }); db.especes.sort((a, b) => a.n.localeCompare(b.n, "fr")); } break;
     case "set-espece": { const e = db.especes.find((x) => x.id === op.id); if (e) patchObj(e, op.patch); break; }
     case "add-lieu": { db.lieux = db.lieux.filter((l) => l.nom !== op.lieu.nom); db.lieux.unshift({ ...op.lieu }); db.lieux = db.lieux.slice(0, 400); break; }

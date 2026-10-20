@@ -5,6 +5,8 @@ import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
 import { mapView } from "./map.js";
 import { exportXlsx, exportJson } from "./export.js";
+import { screenLists } from "./lists.js";
+import { screenImport } from "./importer.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -33,14 +35,14 @@ const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
   [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
   [/^#\/coche\/([\w-]+)\/([\w-]+)$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
-  [/^#\/a-faire$/, screenTodo], [/^#\/reglages$/, screenSettings],
+  [/^#\/a-faire$/, screenTodo], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
 let current = "";
 export function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
 function route(soft) {
   const h = location.hash || "#/";
   if (!S.ready && !/^#\/reglages/.test(h)) { location.replace("#/reglages"); return; }
-  if (soft && (/^#\/(ajout|coche)/.test(h))) return; // never redraw a form while it is open
+  if (soft && (/^#\/(ajout|coche|listes|import)/.test(h))) return; // never redraw a form while it is open
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
@@ -58,9 +60,11 @@ function loading() {
 const nameLink = (sid) => `<a href="#/espece/${esc(sid)}">${esc(M.name(sid))}</a>`;
 const L = (cle) => M.liste.get(cle) || { nom: cle };
 const numOf = (t) => t.n ? `n°${t.n}` : "";
+const cstyle = (cle) => `style="--c:${M.color(cle)}"`;
+const chip = (cle) => `<span class="chip-s" ${cstyle(cle)}>${esc(L(cle).nom)}</span>`;
 function row(t, { rank, showList = false } = {}) {
   const place = t.l && t.l !== t.p ? t.l : "";
-  return `<li class="tick"><span class="n">${rank != null ? rank : t.n || ""}</span><span class="what">${nameLink(t.e)}${showList ? ` <span class="chip-s">${esc(L(t.cle).nom)}</span>` : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
+  return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${nameLink(t.e)}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
 }
 
 // ---------- home: the lists ----------
@@ -101,13 +105,13 @@ function screenList(cle) {
   let items = M.speciesOf(cle);
   if (cle === VU && f) { const v = M.vuOpen(); const keep = new Set((f === "fr" ? v.fr : v.ab).map((t) => t.e)); items = items.filter((t) => keep.has(t.e)); }
   const sort = UI.sort || (l.numerotee ? "n" : "date");
-  const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (a.n || 1e9) - (b.n || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
+  const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
-      <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].filter(([k]) => k !== "n" || l.numerotee).map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
-    <ul class="ticks" id="rows">${sorted.map((t) => row(t, { rank: l.numerotee ? t.n || "" : "" })).join("")}</ul>
+      <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
+    <ul class="ticks" id="rows">${sorted.map((t) => row(t)).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
   const filter = () => { const k = norm(q.value); saveUI({ q: q.value }); rows.forEach((li) => { li.hidden = k && !norm(li.textContent).includes(k); }); };
@@ -158,7 +162,7 @@ function screenJournal() {
       && (!k || norm(`${M.name(t.e)} ${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k)))
       .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
-    $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n">${t.n || ""}</span><span class="what"><b>${esc(M.name(t.e))}</b> <span class="chip-s">${esc(L(t.cle).nom)}</span>${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
+    $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b> ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
     $("#more").hidden = res.length <= shown;
   };
   const set = (p) => { Object.assign(F, p); saveUI({ jf: F }); shown = 200; draw(); };
@@ -193,6 +197,8 @@ function screenMore() {
   view.innerHTML = `<div class="screen"><h2>Plus</h2><nav class="menu">
     <a href="#/calendrier"><b>Calendrier des coches photo</b><small>Toutes les années superposées</small></a>
     <a href="#/a-faire"><b>À faire</b><small>${open} ${plural(open, "tâche")} · ${c.undated.length} coches sans date · ${c.yearMissing.length + c.nested.length} incohérences</small></a>
+    <a href="#/listes"><b>Mes listes</b><small>Créer une liste région, département, lieu ou pays ; couleurs</small></a>
+    <a href="#/import"><b>Importer</b><small>Faune-France, eBird ou cocheurs : compléter dates, lieux et espèces</small></a>
     <button type="button" id="xx"><b>Exporter en Excel</b><small>Toutes les coches, les espèces et les listes</small></button>
     <button type="button" id="xj"><b>Sauvegarde complète (.json)</b><small>Copie exacte de la base</small></button>
     <a href="#/reglages"><b>Réglages</b><small>Clé d'accès GitHub, dépôt, cache</small></a>
@@ -233,6 +239,8 @@ function screenTodo() {
   const cats = [...new Set(tasks.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
   view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
+    ${c.placeMismatch.length ? `<section><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
+      ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
     ${c.yearMissing.length || c.nested.length ? `<section><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
       ${c.yearMissing.map((x) => `<li><span>${nameLink(x.t.e)} a une coche datée de ${x.year} (${esc(L(x.t.cle).nom)}, ${esc(fmtShort(x.t.d))}) mais n'est pas dans la year list ${x.year}.</span> <button class="btn" data-addyl="${x.t.cle}/${x.t.id}">Ajouter à ${x.year}</button></li>`).join("")}
       ${c.nested.map((x) => `<li><span>${nameLink(x.t.e)} est dans ${esc(L(x.liste).nom)} mais pas dans ${esc(L(x.parent).nom)}.</span> <a class="btn" href="#/espece/${esc(x.t.e)}">Voir</a></li>`).join("")}
@@ -244,6 +252,9 @@ function screenTodo() {
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
   $$("[data-nocoords]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.nocoords, year: "", miss: "coords" } }); go("#/journal"); }));
+  const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null } }));
+  $$("[data-align]").forEach((b) => b.addEventListener("click", () => { const x = c.placeMismatch[+b.dataset.align]; S.apply(alignOps(x), `Lieu aligné : ${M.name(x.src.e)} (${fmtShort(x.src.d)})`); }));
+  const aa = $("#align-all"); if (aa) aa.addEventListener("click", () => { S.apply(c.placeMismatch.flatMap(alignOps), `Lieux alignés : ${c.placeMismatch.length} observations`); toast("Lieux alignés."); });
   $$("[data-addyl]").forEach((b) => b.addEventListener("click", () => {
     const [cle, id] = b.dataset.addyl.split("/"), t = (M.db.coches[cle] || []).find((x) => x.id === id); if (!t) return;
     const y = yearOf(t.d); const tick = { id: `yl${y}-${Date.now().toString(36)}`, e: t.e, d: t.d }; ["l", "p", "lat", "lon"].forEach((k) => { if (t[k] != null) tick[k] = t[k]; });

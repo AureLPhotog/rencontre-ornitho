@@ -6,7 +6,7 @@ function download(name, blob) {
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 let xlsxLoading = null;
-function loadXlsx() {
+export function loadXlsx() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   return xlsxLoading || (xlsxLoading = new Promise((ok, ko) => {
     const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";

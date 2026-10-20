@@ -3,6 +3,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
+import { whereIs, listCovers } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
@@ -81,14 +82,35 @@ export function renderAdd(view, q) {
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; refresh(); });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); refresh(); });
   $("#f-det").addEventListener("input", (e) => { st.t = e.target.value; });
-  wirePlace(st, (why) => { if (why === "coords" && st.lat != null && isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) { st.zone = "ouessant"; refresh(); } });
+  const mp = wirePlace(st, async (why) => {
+    if (why !== "coords" || st.lat == null) return;
+    if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) { st.zone = "ouessant"; refresh(); }
+    const w = await whereIs(st.lat, st.lon); if (!w) return; // abroad, or no network
+    if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
+    // the most precise place list that contains the point (zones are sorted most precise first)
+    const z = zones.find((l) => listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone });
+    if (!st.l) { st.l = `${w.commune} (${w.dep})`; $("#f-lieu").value = st.l; }
+    refresh();
+  });
+  // a sighting already ticked that day in another list: same place, so the lists stay linked
+  let linkedKey = "";
+  function prefillFromSameDay() {
+    const k = st.e + "|" + st.d; if (!st.e || !st.d || k === linkedKey) return; linkedKey = k;
+    const same = M.ticks.filter((t) => t.e === st.e && t.d === st.d && (t.lat != null || t.l));
+    if (!same.length || st.l || st.lat != null) return;
+    const src = same.find((t) => t.lat != null) || same[0];
+    st.l = src.l || ""; st.lat = src.lat ?? null; st.lon = src.lon ?? null; st.p = src.p || "";
+    $("#f-lieu").value = st.l; $("#f-pays").value = st.p; if (st.lat != null) mp.set(st.lat, st.lon, 14);
+    $("#f-coords").textContent = st.lat != null ? `${st.lat}, ${st.lon}` : "Pas de coordonnées."; $("#f-clear").hidden = st.lat == null;
+    toast("Lieu repris de la coche du même jour.");
+  }
 
   function refresh() {
     $$("[data-photo]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.photo === "1") === st.photo)));
     const fr = isFrance(st.p);
     $("#f-zone-wrap").hidden = !fr;
     $$("[data-zone]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.zone === st.zone)));
-    const sid = st.e;
+    const sid = st.e; prefillFromSameDay();
     // what we already know about the species
     const m = sid && M.bySp.get(sid);
     $("#f-known").innerHTML = sid ? (m ? "Déjà : " + M.listes.filter((l) => m.has(l.cle)).map((l) => { const t = m.get(l.cle)[0]; return `${esc(l.nom)}${t.n ? " n°" + t.n : ""}${t.d ? " (" + fmtShort(t.d) + ")" : ""}`; }).join(" · ") : "Jamais cochée : ce sera une première.") : st.newName ? `Nouvelle espèce « ${esc(st.newName)} » : elle sera ajoutée au référentiel.` : "";
@@ -119,6 +141,11 @@ export function renderAdd(view, q) {
       if (!isFrance(st.p)) tick.p = st.p; if (st.lat != null) { tick.lat = st.lat; tick.lon = st.lon; } if (st.t) tick.t = st.t.trim();
       ops.push({ kind: "add-tick", cle: x.cle, tick });
     }
+    if (st.e && st.d && (st.l || st.lat != null)) {
+      const place = { l: st.l ? st.l.trim() : null, lat: st.lat, lon: st.lon, p: isFrance(st.p) ? null : st.p };
+      M.ticks.filter((t) => t.e === st.e && t.d === st.d && ((t.l || null) !== place.l || (t.lat ?? null) !== place.lat || (t.lon ?? null) !== place.lon))
+        .forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: place }));
+    }
     if (st.l && st.lat != null) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon, ...(isFrance(st.p) ? {} : { p: st.p }) } });
     const name = sid === st.e ? M.name(sid) : st.newName;
     const where = chosen.map((x) => (M.liste.get(x.cle) || { nom: `YL ${x.year}` }).nom).join(", ");
@@ -134,8 +161,8 @@ export function renderEdit(view, cle, id) {
   const t0 = (M.db.coches[cle] || []).find((x) => x.id === id), l = M.liste.get(cle);
   if (!t0 || !l) { view.innerHTML = '<p class="empty">Cette coche n\'existe plus.</p>'; return; }
   const st = { ...t0 };
-  // the same sighting ticked in other lists (same day, or both undated): offer to fix them together
-  const twins = M.ticks.filter((x) => x.e === t0.e && !(x.cle === cle && x.id === id) && (x.d || "") === (t0.d || "") && (x.l || "") === (t0.l || ""));
+  // the same sighting ticked in other lists (same species, same day): they share date and place
+  const twins = t0.d ? M.ticks.filter((x) => x.e === t0.e && !(x.cle === cle && x.id === id) && x.d === t0.d) : [];
   view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(M.name(t0.e))}</h1><p class="cap">${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p></header>
     <form id="ed" class="form">
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d || "")}"></label>${l.numerotee ? `<label>N°<input class="field" type="number" min="1" id="f-n" value="${esc(st.n || "")}"></label>` : `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>`}</div>
@@ -143,7 +170,7 @@ export function renderEdit(view, cle, id) {
       <datalist id="dl-pays">${["France", ...countries()].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
       ${placeFields(st)}
       <label>Détail<input class="field" id="f-det" value="${esc(st.t || "")}"></label>
-      ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Appliquer aussi la date, le lieu et les coordonnées à ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} (même observation)</label>` : ""}
+      ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} : la date et le lieu y changent aussi</label>` : ""}
       <div class="row"><button class="btn btn-primary btn-lg" type="submit">Enregistrer</button><a class="btn" href="javascript:history.back()">Annuler</a><button class="btn btn-danger" type="button" id="f-del">Supprimer</button></div>
     </form></div>`;
   wirePlace(st);
@@ -157,8 +184,14 @@ export function renderEdit(view, cle, id) {
     if (!Object.keys(patch).length) { history.back(); return; }
     const ops = [{ kind: "set-tick", cle, id, patch }];
     if ($("#f-twins") && $("#f-twins").checked) {
-      const shared = {}; ["d", "l", "lat", "lon"].forEach((k) => { if (k in patch) shared[k] = patch[k]; });
+      const shared = {}; ["d", "l", "lat", "lon", "p"].forEach((k) => { if (k in patch) shared[k] = patch[k]; });
       if (Object.keys(shared).length) twins.forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: shared }));
+    }
+    // a date that matches ticks of other lists: take their place if this one has none, so they stay linked
+    const nd = "d" in patch ? patch.d : t0.d;
+    if (nd && !st.l && st.lat == null) {
+      const src = M.ticks.find((x) => x.e === t0.e && x.d === nd && !(x.cle === cle && x.id === id) && (x.lat != null || x.l));
+      if (src) ops[0].patch = { ...ops[0].patch, l: src.l || null, lat: src.lat ?? null, lon: src.lon ?? null, p: src.p || null };
     }
     if (st.l && st.lat != null && ("l" in patch || "lat" in patch)) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon } });
     S.apply(ops, `Modification : ${M.name(t0.e)} (${l.nom})`);

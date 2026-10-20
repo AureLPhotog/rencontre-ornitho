@@ -1,0 +1,105 @@
+// Managing lists: create a department, region, place or country list (optionally filled from existing ticks), edit one.
+import { $, $$, esc, norm, slug, uid, plural, isFrance, toast } from "./util.js";
+import { S, M, go } from "./app.js";
+import { PHOTO_FR, LIFERS } from "./model.js";
+import { DEPTS, DEPT, REGIONS, deptsOfRegion, deptFromPlace, communeFromPlace, listCovers, whereIs } from "./geo.js";
+
+const TYPES = { dep: "Département", reg: "Région", lieu: "Lieu précis (jardin, réserve…)", pays: "Pays", autre: "Autre" };
+
+export function screenLists(view) {
+  const ls = M.listes.filter((l) => l.type !== "annee");
+  const geo = (l) => l.region ? REGIONS[l.region] : l.deps ? l.deps.map((d) => (DEPT.get(d) || { nom: d }).nom).join(", ") : l.communes ? l.communes.join(", ") : l.type === "pays" ? "pays" : "";
+  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="#/plus">← Plus</a><h1>Mes listes</h1></header>
+    <ul class="plain">${ls.map((l) => `<li class="lrow"><span class="sw" style="background:${M.color(l.cle)}"></span><span class="grow"><b>${esc(l.nom)}</b> <small class="cap">${M.count(l.cle)} espèces${l.dans ? " · dans " + esc(M.liste.get(l.dans).nom) : ""}${geo(l) ? " · " + esc(geo(l)) : ""}${l.numerotee ? " · numérotée" : ""}</small></span><button class="btn" type="button" data-edit="${l.cle}">Modifier</button></li>`).join("")}</ul>
+    <div id="edit"></div>
+    <button class="btn btn-primary" type="button" id="new">Nouvelle liste</button></div>`;
+  $$("[data-edit]").forEach((b) => b.addEventListener("click", () => editForm($("#edit"), M.liste.get(b.dataset.edit))));
+  $("#new").addEventListener("click", () => editForm($("#edit"), null));
+}
+
+function parentOptions(sel, self) {
+  const ok = M.listes.filter((l) => l.type !== "annee" && l.cle !== (self && self.cle) && !(self && M.chain(l.cle).includes(self.cle)));
+  return `<option value="">— aucune —</option>${ok.map((l) => `<option value="${l.cle}" ${sel === l.cle ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}`;
+}
+
+function editForm(el, l) {
+  const isNew = !l;
+  const st = l ? { ...l, kind: l.region ? "reg" : l.deps ? "dep" : l.type === "pays" ? "pays" : l.communes ? "lieu" : "autre" } : { kind: "dep", nom: "", dans: PHOTO_FR, numerotee: false };
+  el.innerHTML = `<form class="panel" id="lf"><h3 class="minor" style="margin:0">${isNew ? "Nouvelle liste" : "Modifier « " + esc(l.nom) + " »"}</h3>
+    ${isNew ? `<label>Type<select class="field" id="l-kind">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${st.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
+    <label id="l-dep-w">Département<select class="field" id="l-dep">${DEPTS.map((d) => `<option value="${d.code}">${d.code} · ${esc(d.nom)}</option>`).join("")}</select></label>
+    <label id="l-reg-w">Région<select class="field" id="l-reg">${Object.entries(REGIONS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+    <label>Nom<input class="field" id="l-nom" value="${esc(st.nom || "")}" required></label>
+    <label>Comprise dans<select class="field" id="l-dans">${parentOptions(st.dans, l)}</select></label>
+    <div class="row2"><label>Couleur<input class="field" type="color" id="l-col" value="${esc(l ? M.color(l.cle) : "#3B7A57")}"></label>
+      <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
+    ${isNew ? `<label class="chk"><input type="checkbox" id="l-fill" checked> Remplir avec les coches que j'ai déjà dans ce secteur</label><p class="cap" id="l-prev"></p>` : ""}
+    <div class="row"><button class="btn btn-primary" type="submit">${isNew ? "Créer la liste" : "Enregistrer"}</button><button class="btn" type="button" id="l-cancel">Annuler</button></div></form>`;
+  const kindSel = $("#l-kind"), depSel = $("#l-dep"), regSel = $("#l-reg"), nomIn = $("#l-nom"), dansSel = $("#l-dans");
+  if (l && l.deps && l.deps.length === 1) depSel.value = l.deps[0];
+  if (l && l.region) regSel.value = l.region;
+  let autoName = isNew;
+  nomIn.addEventListener("input", () => { autoName = false; });
+  const regionList = (reg) => M.listes.find((x) => x.region === reg);
+  const sync = () => {
+    const k = kindSel ? kindSel.value : st.kind;
+    $("#l-dep-w").hidden = k !== "dep"; $("#l-reg-w").hidden = k !== "reg";
+    if (autoName) nomIn.value = k === "dep" ? DEPT.get(depSel.value).nom : k === "reg" ? REGIONS[regSel.value] : "";
+    if (isNew) { // sensible container: the region list of the department, or Photo France
+      if (k === "dep") { const r = regionList(DEPT.get(depSel.value).reg); dansSel.value = r ? r.cle : PHOTO_FR; }
+      else if (k === "reg") dansSel.value = PHOTO_FR; else if (k === "pays") dansSel.value = "";
+      preview();
+    }
+  };
+  const geoOf = () => { const k = kindSel ? kindSel.value : st.kind; return k === "dep" ? { deps: [depSel.value] } : k === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}; };
+  let found = null;
+  function candidates() {
+    const k = kindSel.value, g = geoOf(), nom = nomIn.value.trim();
+    const best = new Map(); let noPhoto = 0;
+    for (const t of M.ticks) {
+      if (t.cle.startsWith("yl") && !t.d) continue;
+      let inside = false;
+      if (k === "pays") inside = !isFrance(t.p) && norm(t.p) === norm(nom);
+      else if (g.deps && isFrance(t.p)) { const dep = deptFromPlace(t.l) || (M.liste.get(t.cle).deps && M.liste.get(t.cle).deps.length === 1 ? M.liste.get(t.cle).deps[0] : null) || (t.cle === "ouessant" ? "29" : null); inside = !!dep && g.deps.includes(dep); }
+      if (!inside) continue;
+      const cur = best.get(t.e); if (!cur || (t.d && (!cur.d || t.d < cur.d))) best.set(t.e, t);
+    }
+    const out = [];
+    for (const [e, t] of best) { if (k !== "pays" && !M.inList(e, PHOTO_FR)) { noPhoto++; continue; } if (k === "pays" && !M.inList(e, LIFERS) && !M.inList(e, "vu")) continue; out.push(t); }
+    return { ticks: out, noPhoto };
+  }
+  function preview() {
+    const p = $("#l-prev"); if (!p) return;
+    const k = kindSel.value; if (!["dep", "reg", "pays"].includes(k)) { p.textContent = "Ce type de liste se remplit à la main, coche par coche."; found = null; return; }
+    found = candidates();
+    p.textContent = `${found.ticks.length} ${plural(found.ticks.length, "espèce")} trouvée${found.ticks.length > 1 ? "s" : ""} dans tes coches, avec la date et le lieu de la première fois.${found.noPhoto ? ` ${found.noPhoto} autre${found.noPhoto > 1 ? "s" : ""} vue${found.noPhoto > 1 ? "s" : ""} là mais sans photo France, laissée${found.noPhoto > 1 ? "s" : ""} de côté.` : ""} Le département est lu dans le nom du lieu, par exemple « (Meyzieu, 69) ».`;
+  }
+  [kindSel, depSel, regSel].forEach((x) => x && x.addEventListener("change", () => { autoName = isNew; sync(); }));
+  nomIn.addEventListener("change", () => isNew && preview());
+  sync();
+  $("#l-cancel").addEventListener("click", () => { el.innerHTML = ""; });
+  $("#lf").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const nom = nomIn.value.trim(); if (!nom) return;
+    const base = { nom, dans: dansSel.value || null, couleur: $("#l-col").value, numerotee: $("#l-num").checked || null };
+    if (!isNew) {
+      if (base.dans && M.chain(base.dans).includes(l.cle)) { toast("Une liste ne peut pas être dans une de ses sous-listes."); return; }
+      S.apply({ kind: "set-liste", cle: l.cle, patch: { ...base, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }, `Liste modifiée : ${nom}`);
+      toast("Liste modifiée."); el.innerHTML = ""; return;
+    }
+    const k = kindSel.value;
+    let cle = slug(nom), i = 2; while (M.liste.has(cle) || /^yl\d{4}$/.test(cle)) cle = slug(nom) + "-" + i++;
+    const liste = { cle, ...base, type: k === "pays" ? "pays" : k === "autre" ? "zone" : "zone", ...geoOf() };
+    Object.keys(liste).forEach((x) => liste[x] == null && delete liste[x]);
+    const ops = [{ kind: "add-liste", liste }];
+    if ($("#l-fill").checked && found && found.ticks.length) {
+      found.ticks.slice().sort((a, b) => (a.d || "9").localeCompare(b.d || "9")).forEach((t, n) => {
+        const tick = { id: `${cle}-${uid()}`, e: t.e }; ["d", "l", "p", "lat", "lon"].forEach((f) => { if (t[f] != null && t[f] !== "") tick[f] = t[f]; });
+        if (liste.numerotee) tick.n = n + 1; ops.push({ kind: "add-tick", cle, tick });
+      });
+    }
+    S.apply(ops, `Nouvelle liste : ${nom}${ops.length > 1 ? ` (${ops.length - 1} coches)` : ""}`);
+    toast(`Liste « ${nom} » créée${ops.length > 1 ? ` avec ${ops.length - 1} espèces` : ""}.`);
+    go(`#/liste/${cle}`);
+  });
+}

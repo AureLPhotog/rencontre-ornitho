@@ -56,6 +56,17 @@ export function buildModel(db) {
     return { fr, ab };
   };
 
+  // a number for every tick: the one noted for numbered lists, otherwise its rank by date in the list
+  // (a species counts once: its later ticks in the same list, e.g. abroad after France in a year list, get none)
+  M.rank = new Map();
+  for (const l of M.listes) {
+    const ts = (db.coches[l.cle] || []).slice().sort(byDate), seen = new Set(); let i = 0;
+    for (const t of ts) { const k = l.cle + "/" + t.id; if (l.numerotee) { if (t.n) M.rank.set(k, t.n); continue; } if (seen.has(t.e)) continue; seen.add(t.e); M.rank.set(k, ++i); }
+  }
+  M.rankOf = (t) => M.rank.get(t.cle + "/" + t.id) || "";
+  const PALETTE = ["#24427F", "#0A7895", "#2F8F5B", "#6E8B1E", "#B7791F", "#8A5A9E", "#C2410C", "#B8326E", "#1D6FA5", "#7A5C2E", "#4B7F8C", "#9A3B3B"];
+  M.color = (cle) => { const l = M.liste.get(cle) || {}; return l.couleur || (l.type === "annee" ? "#9A7400" : PALETTE[Math.max(0, M.listes.indexOf(l)) % PALETTE.length]); };
+
   // search index (names and other names)
   M.index = db.especes.map((e) => ({ e, keys: [norm(e.n), ...(e.al || []).map(norm), norm(e.sc)].filter(Boolean) }));
   M.search = (q, limit = 12) => {
@@ -93,6 +104,19 @@ export function buildModel(db) {
       if (t.lat == null) out.noCoords.set(t.cle, (out.noCoords.get(t.cle) || 0) + 1);
       const y = yearOf(t.d), yl = y && M.liste.get("yl" + y);
       if (yl && t.cle !== yl.cle && !M.inList(t.e, yl.cle) && !out.yearMissing.some((x) => x.t.e === t.e && x.year === y)) out.yearMissing.push({ t, year: y });
+    }
+    // same species, same day, different places: one observation should have one place
+    const PREC = ["jardin", "bureau", "ouessant", "rhone", "aura", "guyane", PHOTO_FR, LIFERS, VU];
+    const prec = (cle) => { const i = PREC.indexOf(cle); return i < 0 ? (M.liste.get(cle) && M.liste.get(cle).type === "annee" ? 60 : 20) : i; };
+    const days = new Map(); M.ticks.forEach((t) => { if (t.d) { const k = t.e + "|" + t.d; if (!days.has(k)) days.set(k, []); days.get(k).push(t); } });
+    out.placeMismatch = [];
+    for (const ts of days.values()) {
+      if (ts.length < 2) continue;
+      const key = (t) => `${t.l || ""}|${t.lat != null ? t.lat.toFixed(5) : ""}|${t.lon != null ? t.lon.toFixed(5) : ""}`;
+      if (new Set(ts.map(key)).size < 2) continue;
+      const src = ts.slice().sort((a, b) => ((a.lat != null ? 0 : 2) + (a.l ? 0 : 1)) - ((b.lat != null ? 0 : 2) + (b.l ? 0 : 1)) || prec(a.cle) - prec(b.cle))[0];
+      if (src.lat == null && !src.l) continue;
+      out.placeMismatch.push({ src, others: ts.filter((t) => t !== src && key(t) !== key(src)) });
     }
     return out;
   };
