@@ -137,7 +137,16 @@ export function buildModel(db) {
       if (src.lat == null && !src.l) continue;
       out.placeMismatch.push({ src, others: ts.filter((t) => t !== src && key(t) !== key(src)) });
     }
+    out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);
     return out;
+  };
+  // numbered list whose numbers do not follow the dates: dated ticks are put back in date order
+  // in the numbers they already use; an undated tick keeps its number, since nothing says where it goes
+  M.renumber = (cle) => {
+    const dated = (db.coches[cle] || []).filter((t) => t.d && t.n);
+    const slots = dated.map((t) => t.n).sort((a, b) => a - b);
+    const order = dated.slice().sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n);
+    return order.map((t, i) => ({ t: { ...t, cle }, to: slots[i] })).filter((x) => x.t.n !== x.to);
   };
   return M;
 }

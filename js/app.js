@@ -18,7 +18,8 @@ const view = $("#view");
 S.on(() => {
   M = buildModel(S.db);
   renderStatus();
-  if (!view.contains(document.activeElement) || document.activeElement === document.body) route(true);
+  const a = document.activeElement; // do not redraw under someone typing; a clicked button is fine
+  if (!view.contains(a) || !a.matches("input:not([type=checkbox]):not([type=radio]), textarea, select")) route(true);
 });
 
 // ---------- status ----------
@@ -353,6 +354,7 @@ function screenTodo() {
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
   view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
     ${c.outside.length ? `<section><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
+    ${c.badNum.map((x) => `<section><h3 class="minor">${esc(L(x.cle).nom)} : numéros pas dans l'ordre des dates</h3><p class="cap">${x.moves.length} ${plural(x.moves.length, "coche")} à renuméroter. Les coches datées sont remises dans l'ordre chronologique ; une coche sans date garde son numéro.</p><div class="row"><button class="btn btn-primary" data-renum="${x.cle}">Renuméroter par date</button></div><ul class="todo">${x.moves.slice(0, 12).map((m) => `<li><span>${nameLink(m.t.e)} · ${esc(fmtShort(m.t.d))}<small>n°${m.t.n} → n°${m.to}</small></span></li>`).join("")}${x.moves.length > 12 ? `<li><span class="cap">… et ${x.moves.length - 12} autres</span></li>` : ""}</ul></section>`).join("")}
     ${c.placeMismatch.length ? `<section><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
       ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
     ${c.yearMissing.length || c.nested.length ? `<section><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
@@ -370,6 +372,7 @@ function screenTodo() {
   $$("[data-nocoords]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.nocoords, year: "", miss: "coords" } }); go("#/journal"); }));
   const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null } }));
   $$("[data-align]").forEach((b) => b.addEventListener("click", () => { const x = c.placeMismatch[+b.dataset.align]; S.apply(alignOps(x), `Lieu aligné : ${M.name(x.src.e)} (${fmtShort(x.src.d)})`); }));
+  $$("[data-renum]").forEach((b) => b.addEventListener("click", () => { const cle = b.dataset.renum, mv = M.renumber(cle); S.apply(mv.map((m) => ({ kind: "set-tick", cle, id: m.t.id, patch: { n: m.to } })), `${L(cle).nom} : ${mv.length} coches renumérotées par date`); toast("Numéros remis dans l'ordre des dates."); }));
   const aa = $("#align-all"); if (aa) aa.addEventListener("click", () => { S.apply(c.placeMismatch.flatMap(alignOps), `Lieux alignés : ${c.placeMismatch.length} observations`); toast("Lieux alignés."); });
   $$("[data-addyl]").forEach((b) => b.addEventListener("click", () => {
     const [cle, id] = b.dataset.addyl.split("/"), t = (M.db.coches[cle] || []).find((x) => x.id === id); if (!t) return;
