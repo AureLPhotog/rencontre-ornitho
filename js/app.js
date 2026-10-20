@@ -311,19 +311,20 @@ function screenMore() {
 }
 
 // ---------- calendar of Photo France ticks ----------
-// 6 steps, from one tick to 6 and more (dark blue to yellow), as in the artifact
-export const CAL_COLORS = ["#2E4C7E", "#24799A", "#22A08C", "#45B97C", "#A3D77A", "#F2E08C"];
+// 12 steps, from one tick (pale yellow) to 12 and more (crimson)
+export const CAL_COLORS = ["#F3E79B", "#F2C462", "#B9D36E", "#7CC17A", "#3FAE8E", "#2A9BA8", "#2C7FB8", "#3B5BA5", "#4B3F8F", "#6A3285", "#8E2A73", "#B0254F"];
 function screenCalendar() {
   const days = M.calendar(), DIM = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   const sel = UI.calDay || todayIso().slice(5);
-  const color = (n) => CAL_COLORS[Math.min(n, 6) - 1];
+  const color = (n) => CAL_COLORS[Math.min(n, 12) - 1];
+  const ink = (n) => n >= 7 ? "#fff" : "#1F2933";
   const today = todayIso().slice(5);
   let grid = `<div class="cal" role="grid"><span></span>${Array.from({ length: 31 }, (_, i) => `<span class="dh">${i === 0 || (i + 1) % 5 === 0 ? i + 1 : ""}</span>`).join("")}`;
   for (let m = 0; m < 12; m++) {
     grid += `<span class="mh">${MOIS_C[m]}</span>`;
     for (let d = 1; d <= 31; d++) {
       const k = `${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`, n = (days.get(k) || []).length;
-      grid += d > DIM[m] ? `<span class="off"></span>` : `<button type="button" data-day="${k}" class="${[k === sel ? "sel" : "", k === today ? "today" : ""].join(" ").trim()}" style="${n ? `background:${color(n)}` : ""}" aria-label="${d} ${MOIS[m]} : ${n} ${plural(n, "coche")}">${n || ""}</button>`;
+      grid += d > DIM[m] ? `<span class="off"></span>` : `<button type="button" data-day="${k}" class="${[k === sel ? "sel" : "", k === today ? "today" : ""].join(" ").trim()}" style="${n ? `background:${color(n)};color:${ink(n)}` : ""}" aria-label="${d} ${MOIS[m]} : ${n} ${plural(n, "coche")}">${n || ""}</button>`;
     }
   }
   grid += "</div>";
@@ -337,9 +338,9 @@ function screenCalendar() {
   const stats = pf.length ? `<div class="stats"><div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestD[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestD[0]))}</span></div>
     <div class="stat"><span class="k">Meilleure année</span><span class="v">${bestY[0]}</span><span class="s">${bestY[1]} nouvelles espèces</span></div>
     <div class="stat"><span class="k">Meilleur mois</span><span class="v">${MOIS[bm]}</span><span class="s">${byMonth[bm]} coches, toutes années</span></div></div>` : "";
-  view.innerHTML = `<div class="screen"><h2>Calendrier des coches photo France</h2><p class="cap">Toutes tes années superposées : la couleur d'une case dit combien de coches photo France tu as faites à cette date, de 1 à 6 et plus (${total} en tout). Touche une case pour voir les espèces.</p>${stats}
+  view.innerHTML = `<div class="screen"><h2>Calendrier des coches photo France</h2><p class="cap">Toutes tes années superposées : la couleur d'une case dit combien de coches photo France tu as faites à cette date, de 1 à 12 et plus (${total} en tout). Touche une case pour voir les espèces.</p>${stats}
     <div class="calwrap">${grid}</div>
-    <div class="legend"><span>moins</span><i class="sq"></i>${CAL_COLORS.map((c) => `<i class="sq" style="background:${c}"></i>`).join("")}<span>plus</span><span class="leg-today"><i class="sq ring"></i> aujourd'hui</span></div>
+    <div class="legend">${CAL_COLORS.map((c, i) => `<span class="lv" style="background:${c};color:${ink(i + 1)}">${i === 11 ? "12+" : i + 1}</span>`).join("")}<span class="leg-today"><i class="sq ring"></i> aujourd'hui</span></div>
     <section><h3 class="minor">Un ${sd === 1 ? "1er" : sd} ${MOIS[sm - 1]} · ${ts.length} ${plural(ts.length, "coche photo", "coches photo")}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.n })).join("") || '<li class="cap">Aucune coche photo France à cette date.</li>'}</ul></section></div>`;
   $$("[data-day]").forEach((b) => b.addEventListener("click", () => { saveUI({ calDay: b.dataset.day }); screenCalendar(); }));
 }
