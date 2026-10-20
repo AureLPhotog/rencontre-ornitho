@@ -1,4 +1,12 @@
 // Adding a sighting (with the lists it goes to) and editing one tick.
+// a name you already gave within 300 m: a named tick (not a bare region name) or a saved place
+function ownPlaceNear(pt) {
+  let best = null, bd = 0.3;
+  for (const x of [...M.ticks.filter((t) => t.l && t.lat != null && !["France", "Guyane", "Espagne"].includes(t.l)), ...(M.db.lieux || []).map((x) => ({ ...x, l: x.nom }))]) {
+    if (x.lat == null) continue; const d = distKm(x, pt); if (d < bd) { bd = d; best = x.l; }
+  }
+  return best;
+}
 import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName } from "./util.js";
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
@@ -92,7 +100,9 @@ export function renderAdd(view, q) {
     const at = { lat: st.lat, lon: st.lon };
     // within 150 m of the garden or the office (as placed on that date): that list
     const near = zones.find((l) => { const f = placeAt(l, st.d); return f && distKm(f, st) < Math.min(0.15, (l.rayon || 300) / 2000); });
-    if (near) { st.zone = near.cle; saveUI({ zone: st.zone }); if (!st.l) { st.l = placeAt(near, st.d).nom || ""; $("#f-lieu").value = st.l; } }
+    // the place name follows the point as long as it was filled by the app (not typed)
+    const free = () => !st.l || st.l === st.autoL, setL = (v) => { st.l = st.autoL = v; $("#f-lieu").value = v; };
+    if (near) { st.zone = near.cle; saveUI({ zone: st.zone }); if (free()) setL(placeAt(near, st.d).nom || ""); }
     else if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) st.zone = "ouessant";
     st.where = undefined; refresh();
     const w = await whereIs(st.lat, st.lon);
@@ -101,12 +111,14 @@ export function renderAdd(view, q) {
     if (w && w.fr) {
       if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
       if (!near && w.dep) { const z = zones.find((l) => !l.lieux && listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone }); }
-      if (!st.l && w.commune) {
-        const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; st.l = `${w.commune}${w.dep ? ` (${w.dep})` : ""}`; $("#f-lieu").value = st.l; const auto = st.l;
-        // then the IGN lieu-dit, if the name was not typed meanwhile
-        lieuDit(at.lat, at.lon, w.commune).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) { st.l = `${ld.name} (${com})`; $("#f-lieu").value = st.l; } });
+      // a place you already named within 300 m (a tick or a saved place), else the commune then the IGN lieu-dit
+      const own = near ? null : ownPlaceNear(at);
+      if (free() && own) setL(own);
+      else if (free() && !near && w.commune) {
+        const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; setL(`${w.commune}${w.dep ? ` (${w.dep})` : ""}`); const auto = st.l;
+        lieuDit(at.lat, at.lon, w.commune).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) setL(`${ld.name} (${com})`); });
       }
-    } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; if (!st.l && w.commune) { st.l = w.commune; $("#f-lieu").value = st.l; } }
+    } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; const own = ownPlaceNear(at); if (free() && (own || w.commune)) setL(own || w.commune); }
     refresh();
   });
   // a sighting already ticked that day in another list: same place, so the lists stay linked
