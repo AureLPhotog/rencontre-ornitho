@@ -160,3 +160,23 @@ section>.side{margin-left:12px}
 .sticky-act{position:sticky;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px);background:var(--paper);padding:8px 0;z-index:5}
 input[type=color].field{height:42px;padding:4px}
 .maplegend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:12px;color:var(--muted);margin:6px 0 0}.maplegend span{width:12px;height:12px;border-radius:50%;background:var(--c);border:2px solid var(--s,var(--c));display:inline-block;margin-right:2px;vertical-align:-1px}
+/* year list chart, comparison table, stats (as in the first app) */
+.chart svg{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--rule);stroke-width:1}.chart .axis{fill:var(--muted);font-family:var(--f-data);font-size:13px}
+.chart .past{fill:none;stroke:var(--muted);stroke-width:1.3;opacity:.45}.chart .line{fill:none;stroke:var(--kf);stroke-width:2.8;stroke-linejoin:round}
+.chart .today{stroke:var(--muted);stroke-dasharray:3 4;stroke-width:1}.chart .end{fill:var(--rufous)}
+.chart .endlabel{fill:var(--rufous);font-family:var(--f-display);font-weight:800;font-size:18px}
+.hero h1{font-size:20px}
+.tblwrap{overflow-x:auto}
+table.cmp{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+table.cmp th{font-family:var(--f-data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:4px 8px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap}
+table.cmp td{padding:6px 8px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap}table.cmp td a{color:inherit;text-decoration:none}
+table.cmp tr.cur td{color:var(--kf);font-weight:600}
+.cbar{display:inline-block;width:64px;height:6px;background:var(--rule);border-radius:3px;margin-right:8px;vertical-align:middle;overflow:hidden}
+.cbar i{display:block;height:100%;background:var(--kf);opacity:.5}tr.cur .cbar i{opacity:1}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.stat{background:var(--leaf);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.stat .k{font-family:var(--f-data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--f-display);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2;overflow-wrap:anywhere}
+.stat .v small{font-size:14px;color:var(--muted);font-weight:400}.stat .s{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+@media (max-width:480px){.stat .v{font-size:18px}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}}

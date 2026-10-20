@@ -108,7 +108,10 @@ export function buildModel(db) {
       if (!t.d && !["jardin", "bureau"].includes(t.cle)) out.undated.push(t);
       if (t.lat == null) out.noCoords.set(t.cle, (out.noCoords.get(t.cle) || 0) + 1);
       const y = yearOf(t.d), yl = y && M.liste.get("yl" + y);
-      if (yl && t.cle !== yl.cle && !M.inList(t.e, yl.cle) && !out.yearMissing.some((x) => x.t.e === t.e && x.year === y)) out.yearMissing.push({ t, year: y });
+      // a year list only counts what counts in photo: in France the species must have its Photo France, abroad its lifer;
+      // a tick only seen or heard (Vu/entendu, or « vu » / « entendu » in a trip list) is not a reason
+      const counts = t.cle !== VU && !/^(vu|entendu)/i.test(t.t || "") && (isFrance(t.p) ? M.inList(t.e, PHOTO_FR) : M.inList(t.e, LIFERS));
+      if (yl && counts && t.cle !== yl.cle && !M.inList(t.e, yl.cle) && !out.yearMissing.some((x) => x.t.e === t.e && x.year === y)) out.yearMissing.push({ t, year: y });
     }
     // ticks placed outside their list's area, judged from the place name ("…, 69)") or the fixed spot
     out.outside = [];

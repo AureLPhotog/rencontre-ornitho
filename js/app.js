@@ -120,27 +120,79 @@ function screenList(cle) {
 }
 
 // ---------- year list ----------
+// day of the year (0-based) of an ISO date, and the number of days in that year
+const doy = (iso) => { const [Y, m, d] = iso.split("-").map(Number); return Math.round((Date.UTC(Y, m - 1, d) - Date.UTC(Y, 0, 1)) / 864e5); };
+const daysIn = (y) => (new Date(y, 1, 29).getMonth() === 1 ? 366 : 365);
+const diffTxt = (d) => (d > 0 ? "+" + d : d < 0 ? "−" + -d : "=");
+const diffCls = (d) => (d > 0 ? "up" : d < 0 ? "down" : "");
+
+function yearChart(year, series, cur, endX, todayX) {
+  const W = 480, H = 230, Lm = 34, Rm = 46, T = 14, B = 26, days = daysIn(year);
+  const all = [cur.at(-1) || { v: 0 }, ...series.flatMap((s) => s.pts.slice(-1))].map((p) => p.v);
+  const yMax = Math.max(50, Math.ceil(Math.max(...all) / 50) * 50);
+  const x = (d) => Lm + (d / days) * (W - Lm - Rm), y = (v) => T + (1 - v / yMax) * (H - T - B);
+  let g = "";
+  for (let v = 0; v <= yMax; v += yMax > 300 ? 100 : 50) g += `<line class="grid" x1="${Lm}" x2="${W - Rm}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${Lm - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  "JFMAMJJASOND".split("").forEach((m, i) => { const s0 = doy(`${year}-${String(i + 1).padStart(2, "0")}-01`), e0 = i < 11 ? doy(`${year}-${String(i + 2).padStart(2, "0")}-01`) : days; g += `<text class="axis" x="${(x(s0) + x(e0)) / 2}" y="${H - 6}" text-anchor="middle">${m}</text>`; });
+  const path = (pts, end) => { let p = `M${x(0)},${y(0)}`; pts.forEach((c) => { p += ` H${x(c.x).toFixed(1)} V${y(c.v).toFixed(1)}`; }); return p + (end != null ? ` H${x(end).toFixed(1)}` : ""); };
+  const past = series.map((s) => `<path class="past" d="${path(s.pts, days - 1)}"><title>${s.year}</title></path>`).join("");
+  const endV = cur.length ? cur[cur.length - 1].v : 0;
+  const today = todayX != null ? `<line class="today" x1="${x(todayX)}" x2="${x(todayX)}" y1="${T}" y2="${y(0)}"/>` : "";
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Espèces cumulées au fil de l'année ${year}, comparées aux autres années">${g}${today}${past}
+    <path class="line" d="${path(cur, endX)}"/><circle class="end" cx="${x(endX)}" cy="${y(endV)}" r="4.5"/><text class="endlabel" x="${x(endX) + 7}" y="${y(endV) + 6}">${endV}</text></svg>
+    <p class="cap">Trait bleu : ${year}. Traits gris : autres années. Pointillé : aujourd'hui.</p></div>`;
+}
+
 function screenYear(y) {
   const years = M.years; const year = +(y || UI.year || years[years.length - 1]);
   if (!years.includes(year)) return go(`#/annee/${years[years.length - 1]}`);
   saveUI({ year });
-  const scope = UI.scope, list = M.yearList(year, scope);
-  const now = new Date(), past = year < now.getFullYear();
-  // same date last year, for comparison
-  const md = todayIso().slice(5), prev = M.years.includes(year - 1) ? M.yearList(year - 1, scope).filter((t) => t.d && t.d.slice(5) <= md).length : null;
-  const atDate = past ? list.filter((t) => t.d && t.d.slice(5) <= md).length : null;
+  const scope = UI.scope, list = M.yearList(year, scope), thisYear = new Date().getFullYear(), past = year < thisYear;
+  // the comparison date: today's day and month (31 December once a year is over and we look at this year)
+  const md = todayIso().slice(5), dateLbl = fmtDay(`2000-${md}`, false);
+  const series = years.map((yy) => {
+    const l = M.yearList(yy, scope), dated = l.filter((t) => t.d).sort((a, b) => a.d.localeCompare(b.d));
+    const pts = []; dated.forEach((t, i) => { const dx = doy(t.d); if (pts.length && pts[pts.length - 1].x === dx) pts[pts.length - 1].v = i + 1; else pts.push({ x: dx, v: i + 1 }); });
+    return { year: yy, pts, at: dated.filter((t) => t.d.slice(5) <= md).length, full: yy < thisYear ? l.length : null, total: l.length };
+  });
+  const me = series.find((s) => s.year === year), others = series.filter((s) => s.year !== year);
+  const cur = past ? me.at : list.length;
+  const rows = series.map((s) => ({ y: s.year, at: s.year === year ? cur : s.at, full: s.full }));
+  const rank = rows.slice().sort((a, b) => b.at - a.at).findIndex((r) => r.y === year) + 1;
+  const prev = others.find((s) => s.year === year - 1), best = others.reduce((m, r) => (!m || r.at > m.at ? r : m), null);
+  const lines = [];
+  if (prev) lines.push(`<span class="${diffCls(cur - prev.at)}">${diffTxt(cur - prev.at)}</span> par rapport à ${prev.year} (${prev.at})`);
+  if (best) lines.push(cur > best.at ? `Record battu : ${best.year} était ton meilleur score à cette date (${best.at})` : cur === best.at ? `À égalité avec ${best.year}, ton record à cette date` : `Record à cette date : ${best.at} en ${best.year} (<span class="down">${diffTxt(cur - best.at)}</span>)`);
+  const head = rank === 1 ? "Ta meilleure year list" : `${rank}e meilleure year list`;
   const abroad = scope === "monde" ? list.filter((t) => !isFrance(t.p)) : [];
   const byC = {}; abroad.forEach((t) => { byC[t.p] = (byC[t.p] || 0) + 1; });
+  const abroadTxt = abroad.length ? ` Dont ${abroad.length} à l'étranger (${Object.entries(byC).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${esc(c)} ${n}`).join(", ")}).` : "";
+  // chart: this year up to today (or the whole year when it is over)
+  const curPts = past ? me.pts : me.pts;
+  const todayX = !past ? doy(todayIso()) : null, endX = past ? daysIn(year) - 1 : todayX;
+  const maxAt = Math.max(1, ...rows.map((r) => r.at));
+  // stats
+  const dated = list.filter((t) => t.d), byDay = new Map(); dated.forEach((t) => byDay.set(t.d, (byDay.get(t.d) || 0) + 1));
+  const bestDay = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const elapsed = past ? daysIn(year) : doy(todayIso()) + 1;
+  const last = dated.slice().sort((a, b) => b.d.localeCompare(a.d) || (b.rank - a.rank))[0];
   const groups = new Map(); [...list.filter((t) => t.d).reverse(), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   view.innerHTML = `<div class="screen keep-scroll">
-    <div class="tools"><div class="seg" role="group" aria-label="Année">${years.map((x) => `<a href="#/annee/${x}" aria-pressed="${x === year}">${x}</a>`).join("")}</div>
+    <div class="tools"><select class="field" id="yl-year" aria-label="Année" style="max-width:120px">${years.slice().reverse().map((x) => `<option ${x === year ? "selected" : ""}>${x}</option>`).join("")}</select>
       <div class="seg" role="group" aria-label="Portée"><button type="button" data-scope="fr" aria-pressed="${scope === "fr"}">France</button><button type="button" data-scope="monde" aria-pressed="${scope === "monde"}">France et étranger</button></div></div>
-    <div class="hero"><b>${list.length}</b><div><p><strong>${past ? "Total de l'année" : `En ${year}`}</strong>${scope === "monde" ? ", étranger compris" : ", en France"}</p>
-      ${atDate != null ? `<p>Au ${esc(fmtDay(year + "-" + md, false))} ${year} : <strong>${atDate}</strong> espèces</p>` : prev != null ? `<p>Au même jour en ${year - 1} : <strong>${prev}</strong>${list.length > prev ? ` <span class="up">+${list.length - prev}</span>` : list.length < prev ? ` <span class="down">${list.length - prev}</span>` : ""}</p>` : ""}
-      ${abroad.length ? `<p>Dont ${abroad.length} à l'étranger (${Object.entries(byC).map(([c, n]) => `${esc(c)} ${n}`).join(", ")})</p>` : ""}</div></div>
+    <div class="hero"><b>${past ? list.length : cur}</b><div><h1>Year list ${year}${scope === "fr" ? " · France" : ""}</h1>
+      <p>${past ? `Total de l'année.${abroadTxt}<br><strong>Au ${esc(dateLbl)} ${year} : ${cur} espèces</strong>, ${rank === 1 ? "ta meilleure year list à cette date" : `${rank}e sur ${rows.length} années à cette date`}.` : `<strong>${head} au ${esc(dateLbl)}</strong>, sur ${rows.length} années.${abroadTxt}`}${lines.length ? "<br>" + lines.join("<br>") : ""}</p></div></div>
+    ${yearChart(year, others, curPts, endX, todayX)}
+    <div><h3 class="minor">Au ${esc(dateLbl)}, les autres années</h3><div class="tblwrap"><table class="cmp"><thead><tr><th>Année</th><th>Espèces</th><th>Écart</th><th>Total final</th></tr></thead><tbody>
+      ${rows.slice().sort((a, b) => b.y - a.y).map((r) => `<tr${r.y === year ? ' class="cur"' : ""}><td><a href="#/annee/${r.y}">${r.y}</a></td><td><span class="cbar"><i style="width:${((r.at / maxAt) * 100).toFixed(0)}%"></i></span>${r.at}</td><td>${r.y === year ? "" : `<span class="${diffCls(cur - r.at)}">${diffTxt(cur - r.at)}</span>`}</td><td>${r.full == null ? "en cours" : r.full}</td></tr>`).join("")}
+    </tbody></table></div><p class="cap">Écart : ${year} moins l'année en question, au même jour.</p></div>
+    ${dated.length ? `<div class="stats"><div class="stat"><span class="k">Jours de coche</span><span class="v">${byDay.size}<small> / ${elapsed} j</small></span><span class="s">${Math.round((byDay.size / elapsed) * 100)} % des jours ${past ? "de l'année" : "écoulés"}</span></div>
+      <div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestDay[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestDay[0]))}</span></div>
+      <div class="stat"><span class="k">Dernière coche</span><span class="v">${esc(M.name(last.e))}</span><span class="s">n°${last.rank} · ${esc(fmtDay(last.d, false))}</span></div></div>` : ""}
     ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
   </div>`;
   $$("[data-scope]").forEach((b) => b.addEventListener("click", () => { saveUI({ scope: b.dataset.scope }); screenYear(year); }));
+  $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
 
 // ---------- journal ----------
@@ -213,7 +265,7 @@ function screenSpecies(sid) {
 
 // ---------- more ----------
 function screenMore() {
-  const c = M.checks(), open = M.db.taches.filter((t) => !t.fait).length;
+  const c = M.checks(), open = M.db.taches.map(taskView).filter((v) => !v.done).length;
   view.innerHTML = `<div class="screen"><h2>Plus</h2><nav class="menu">
     <a href="#/calendrier"><b>Calendrier des coches photo</b><small>Toutes les années superposées</small></a>
     <a href="#/a-faire"><b>À faire</b><small>${open} ${plural(open, "tâche")} · ${c.undated.length} coches sans date · ${c.yearMissing.length + c.nested.length} incohérences</small></a>
@@ -246,7 +298,14 @@ function screenCalendar() {
   const ts = (days.get(sel) || []).slice().sort((a, b) => a.d.localeCompare(b.d));
   const [sm, sd] = sel.split("-").map(Number);
   const total = [...days.values()].reduce((s, a) => s + a.length, 0);
-  view.innerHTML = `<div class="screen"><h2>Calendrier des coches photo France</h2><p class="cap">Toutes tes années superposées : chaque case dit combien de coches photo France tu as faites à cette date (${total} en tout). Touche une case.</p>
+  // records: best single day, best year, best month (all years together)
+  const pf = (M.db.coches[PHOTO_FR] || []).filter((t) => t.d), byDate = new Map(), byYear = new Map(), byMonth = new Array(12).fill(0);
+  pf.forEach((t) => { byDate.set(t.d, (byDate.get(t.d) || 0) + 1); const yy = t.d.slice(0, 4); byYear.set(yy, (byYear.get(yy) || 0) + 1); byMonth[+t.d.slice(5, 7) - 1]++; });
+  const bestD = [...byDate].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0], bestY = [...byYear].sort((a, b) => b[1] - a[1])[0], bm = byMonth.indexOf(Math.max(...byMonth));
+  const stats = pf.length ? `<div class="stats"><div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestD[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestD[0]))}</span></div>
+    <div class="stat"><span class="k">Meilleure année</span><span class="v">${bestY[0]}</span><span class="s">${bestY[1]} nouvelles espèces</span></div>
+    <div class="stat"><span class="k">Meilleur mois</span><span class="v">${MOIS[bm]}</span><span class="s">${byMonth[bm]} coches, toutes années</span></div></div>` : "";
+  view.innerHTML = `<div class="screen"><h2>Calendrier des coches photo France</h2><p class="cap">Toutes tes années superposées : chaque case dit combien de coches photo France tu as faites à cette date (${total} en tout). Touche une case.</p>${stats}
     <div class="calwrap">${grid}</div>
     <div class="legend">${CAL_COLORS.map((c, i) => `<span style="background:${c};color:${ink(i + 1)}">${i === 11 ? "12+" : i + 1}</span>`).join("")}</div>
     <section><h3 class="minor">${sd === 1 ? "1er" : sd} ${MOIS[sm - 1]} · ${ts.length} ${plural(ts.length, "coche")}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.n })).join("") || '<li class="cap">Aucune coche photo France à cette date.</li>'}</ul></section></div>`;
@@ -254,6 +313,40 @@ function screenCalendar() {
 }
 
 // ---------- to do ----------
+// each task is checked against the base as it is now: a task whose cause has gone (date changed, tick removed…) is done
+const tickLine = (tk) => tk ? `${tk.n ? "n°" + tk.n + " · " : ""}${tk.d ? fmtShort(tk.d) : "sans date"}${tk.l ? " · " + esc(tk.l) : ""}${tk.lat != null ? ` · ${tk.lat}, ${tk.lon}` : ""}` : "";
+function taskView(t) {
+  const tk = t.sid && t.cle ? M.tick(t.sid, t.cle) : null, gone = t.sid && t.cle && !tk;
+  const who = t.sid ? `${nameLink(t.sid)} ${t.cle ? chip(t.cle) : ""}` : t.cle ? chip(t.cle) : "";
+  const act = (a, label, primary) => `<button class="btn${primary ? " btn-primary" : ""}" data-act="${esc(t.id)}:${a}">${label}</button>`;
+  const edit = tk ? `<a class="btn" href="#/coche/${tk.cle}/${tk.id}">Corriger</a>` : "";
+  let done = !!t.fait || gone, body = "", btns = "";
+  if (t.kind === "check") {
+    done = done || Object.entries(t.watch || {}).some(([k, v]) => (tk[k] ?? null) !== v);
+    body = `${esc(t.quoi)}<small>${esc(t.det || "")}${t.det ? " · " : ""}aujourd'hui : ${tickLine(tk)}</small>`; btns = act("ok", "C'est bon") + edit;
+  } else if (t.kind === "choose-date") {
+    done = done || tk.d === t.other;
+    body = `${tk.d ? `Appli <b>${fmtShort(tk.d)}</b> · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>` : `Pas de date dans l'appli · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>`}<small>${tickLine(tk)}</small>`;
+    btns = (tk.d ? act("keep", `Garder ${fmtShort(tk.d)}`) : "") + act("take", `${tk.d ? "Prendre" : "Reporter"} ${fmtShort(t.other)}`, !tk.d);
+  } else if (t.kind === "cocheurs") {
+    body = `${esc(t.quoi)}<small>${tickLine(tk)}</small>`; btns = act("ok", "Fait dans cocheurs");
+  } else { body = `${esc(t.quoi)}${t.det ? `<small>${esc(t.det)}</small>` : ""}`; btns = act("ok", "Fait"); }
+  return { done, html: `<li><span>${who}${who ? "<br>" : ""}${body}</span><span class="row">${btns}</span></li>` };
+}
+function taskAct(id, a) {
+  const t = M.db.taches.find((x) => x.id === id); if (!t) return;
+  const label = `${t.sid ? M.name(t.sid) + " · " : ""}${t.quoi || "date"}`;
+  if (a === "ok") return S.apply({ kind: "set-tache", id, patch: { fait: true } }, `Fait : ${label}`);
+  if (a === "keep") return S.apply({ kind: "set-tache", id, patch: { fait: true, det: `date de l'appli gardée : à corriger dans ${t.src || "cocheurs"}` } }, `Date gardée : ${label}`);
+  if (a === "take") {
+    const tk = M.tick(t.sid, t.cle); if (!tk) return;
+    // the first sighting moves to that day: its place comes from a tick of the same day, or is to be completed
+    const same = M.ticks.find((x) => x.e === t.sid && x.d === t.other && x !== tk && (x.lat != null || x.l));
+    const patch = { d: t.other, l: same ? same.l || null : null, lat: same ? same.lat ?? null : null, lon: same ? same.lon ?? null : null };
+    S.apply([{ kind: "set-tick", cle: tk.cle, id: tk.id, patch }, { kind: "set-tache", id, patch: { fait: true } }], `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}, ${fmtShort(t.other)})`);
+    toast(same ? "Date et lieu repris." : "Date reprise ; le lieu de ce jour-là est à compléter.");
+  }
+}
 function screenTodo() {
   const c = M.checks(), tasks = M.db.taches;
   const cats = [...new Set(tasks.map((t) => t.cat))];
@@ -268,8 +361,10 @@ function screenTodo() {
     </ul></section>` : ""}
     <section><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p>
       <h3 class="minor">Coches sans coordonnées</h3><p class="cap">${[...c.noCoords].filter(([k]) => !["jardin", "bureau"].includes(k)).map(([k, n]) => `<a href="#" data-nocoords="${k}">${esc(L(k).nom)} ${n}</a>`).join(" · ") || "Aucune."}</p></section>
-    ${cats.map((cat) => `<section><h3 class="minor">${esc(cat)}</h3><ul class="todo">${tasks.filter((t) => t.cat === cat).map((t) => `<li class="${t.fait ? "done" : ""}"><label class="chk"><input type="checkbox" data-task="${esc(t.id)}" ${t.fait ? "checked" : ""}><span><b>${esc(t.esp || "")}</b>${t.esp ? " · " : ""}${esc(t.quoi)}${t.liste ? ` <span class="chip-s">${esc(t.liste)}</span>` : ""}${t.det ? `<small>${esc(t.det)}</small>` : ""}</span></label></li>`).join("")}</ul></section>`).join("")}
+    ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
+      return `<section><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
   </div>`;
+  $$("[data-act]").forEach((b) => b.addEventListener("click", () => { const [id, a] = b.dataset.act.split(":"); taskAct(id, a); }));
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
   $$("[data-nocoords]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.nocoords, year: "", miss: "coords" } }); go("#/journal"); }));
