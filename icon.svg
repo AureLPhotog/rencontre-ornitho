@@ -1,9 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Rencontre Ornitho: a rounded wing whose body carries a tick (« coche ») -->
   <g id="bird">
-    <rect width="32" height="32" rx="8" fill="#0A7895"/>
-    <path fill="#F2C462" d="M7 21.5c2.8-.4 5.6-1.5 7.6-3.4l3.4 4.2c-3.3 1.6-7.3 1.6-11 .4z"/>
-    <path fill="#FFFFFF" d="M11.5 19.5c0-4.6 3.3-8.6 7.6-8.6 2.4 0 4.2 1.3 4.9 3.1l4.5 1.2-4.4 1.4c-.4 3.9-3.6 6.9-7.6 6.9-1.9 0-3.6-.6-5-1.6z"/>
-    <circle cx="21.2" cy="14.1" r="1.15" fill="#16302A"/>
-    <path fill="#F2C462" d="M14.3 25.2h1.4l-.4 2.3h-.9zM17.6 25.2H19l-.4 2.3h-.9z"/>
+    <rect width="512" height="512" rx="116" fill="#EAF5F8"/>
+    <path fill="#0A7895" d="M118 318 C112 214 190 128 302 120 C338 117 372 122 402 134 C408 137 407 145 401 148 C374 160 352 174 334 190 C360 190 384 196 404 206 C410 209 409 217 403 220 C372 232 344 250 322 272 C340 278 356 287 368 298 C373 303 371 310 364 312 C310 326 262 356 228 394 C222 400 214 402 207 400 C152 386 120 360 118 318Z "/>
+    <path d="M184 290 l44 44 88 -100" fill="none" stroke="#FFFFFF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
