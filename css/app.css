@@ -197,3 +197,10 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .spnav-a.off{opacity:.25}
 .spnav-pos{display:flex;flex-direction:column;align-items:center;font-family:var(--f-data);font-size:12px;color:var(--muted)}
 .spnav-pos small{font-size:11px}
+/* to-do: index of the categories, stays at the top while scrolling */
+.tdnav{position:sticky;top:52px;z-index:5;display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin:0 -16px;padding-left:16px;padding-right:16px;background:var(--paper);-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tdnav::-webkit-scrollbar{display:none}
+.tdnav a{flex:none;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--rule);border-radius:999px;background:var(--leaf);color:var(--ink);text-decoration:none;font-size:13px;white-space:nowrap}
+.tdnav a b{font-family:var(--f-data);font-size:12px;color:var(--kf)}
+.tdnav a.zero{opacity:.5}.tdnav a.on{background:var(--kf);border-color:var(--kf);color:#fff}.tdnav a.on b{color:#fff}
+.screen > section[id^="td-"]{scroll-margin-top:110px}

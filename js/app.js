@@ -402,26 +402,48 @@ function taskAct(id, a) {
     toast(same ? "Date et lieu repris." : "Date reprise ; le lieu de ce jour-là est à compléter.");
   }
 }
+// the chip of the category being read is highlighted, and kept visible in the bar
+let tdLast = -1;
+function tdSpy() {
+  const nav = $("#tdnav"); if (!nav) return;
+  const secs = $$(".screen > section[id^='td-']", view); let cur = 0;
+  secs.forEach((s, i) => { if (s.getBoundingClientRect().top < 130) cur = i; });
+  if (cur === tdLast && nav.querySelector(".on")) return; tdLast = cur;
+  $$("[data-td]", nav).forEach((a) => a.classList.toggle("on", +a.dataset.td === cur));
+  const a = nav.querySelector(".on"); if (a) nav.scrollTo({ left: a.offsetLeft - 16, behavior: "smooth" });
+}
+window.addEventListener("scroll", () => { if ($("#tdnav")) tdSpy(); }, { passive: true });
 function screenTodo() {
   const c = M.checks(), tasks = M.db.taches;
   const cats = [...new Set(tasks.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
-  view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
-    ${c.outside.length ? `<section><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
-    ${c.srcDate.length ? `<section><h3 class="minor">Pas d'accord avec Faune-France / eBird · ${c.srcDate.length}</h3><p class="cap">Soit ton dernier import n'a pas l'espèce ce jour-là mais l'a à quelques jours près (40 au plus), soit il l'a le même jour mais à plus de 20 km : souvent une erreur de date ou de lieu. « Prendre » reprend la date et le lieu de la source dans toutes les listes de cette observation ; « Garder » confirme ce qu'a l'appli.</p><ul class="todo">
+  view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2><nav class="tdnav" id="tdnav" aria-label="Catégories"></nav>
+    ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
+    ${c.srcDate.length ? `<section data-n="${c.srcDate.length}"><h3 class="minor">Pas d'accord avec Faune-France / eBird · ${c.srcDate.length}</h3><p class="cap">Soit ton dernier import n'a pas l'espèce ce jour-là mais l'a à quelques jours près (40 au plus), soit il l'a le même jour mais à plus de 20 km : souvent une erreur de date ou de lieu. « Prendre » reprend la date et le lieu de la source dans toutes les listes de cette observation ; « Garder » confirme ce qu'a l'appli.</p><ul class="todo">
       ${c.srcDate.slice(0, 200).map((x, i) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ticks.map((t) => t.cle))].map(chip).join(" ")}<small>appli <b>${esc(fmtShort(x.d))}</b> (${esc(srcName(x.ticks[0].sd))})${x.ticks[0].l ? " · " + esc(x.ticks[0].l) : ""} · ${x.near.src === "ff" ? "Faune-France" : "eBird"} ${x.lieu ? `le même jour, <b>à ${x.km} km</b>` : `<b>${esc(fmtShort(x.near.d))}</b>`}${x.near.l ? " · " + esc(x.near.l) : ""}</small></span><span class="row"><button class="btn" data-sdtake="${i}">${x.lieu ? "Prendre ce lieu" : "Prendre " + esc(fmtShort(x.near.d))}</button><button class="btn" data-sdkeep="${i}">Garder ${x.lieu ? "le lieu" : esc(fmtShort(x.d))}</button></span></li>`).join("")}${c.srcDate.length > 200 ? `<li><span class="cap">… et ${c.srcDate.length - 200} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul></section>` : ""}
-    ${c.badNum.map((x) => `<section><h3 class="minor">${esc(L(x.cle).nom)} : numéros pas dans l'ordre des dates</h3><p class="cap">${x.moves.length} ${plural(x.moves.length, "coche")} à renuméroter. Les coches datées sont remises dans l'ordre chronologique ; une coche sans date garde son numéro.</p><div class="row"><button class="btn btn-primary" data-renum="${x.cle}">Renuméroter par date</button></div><ul class="todo">${x.moves.slice(0, 12).map((m) => `<li><span>${nameLink(m.t.e)} · ${esc(fmtShort(m.t.d))}<small>n°${m.t.n} → n°${m.to}</small></span></li>`).join("")}${x.moves.length > 12 ? `<li><span class="cap">… et ${x.moves.length - 12} autres</span></li>` : ""}</ul></section>`).join("")}
-    ${c.placeMismatch.length ? `<section><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
+    ${c.badNum.map((x) => `<section data-n="${x.moves.length}"><h3 class="minor">${esc(L(x.cle).nom)} : numéros pas dans l'ordre des dates</h3><p class="cap">${x.moves.length} ${plural(x.moves.length, "coche")} à renuméroter. Les coches datées sont remises dans l'ordre chronologique ; une coche sans date garde son numéro.</p><div class="row"><button class="btn btn-primary" data-renum="${x.cle}">Renuméroter par date</button></div><ul class="todo">${x.moves.slice(0, 12).map((m) => `<li><span>${nameLink(m.t.e)} · ${esc(fmtShort(m.t.d))}<small>n°${m.t.n} → n°${m.to}</small></span></li>`).join("")}${x.moves.length > 12 ? `<li><span class="cap">… et ${x.moves.length - 12} autres</span></li>` : ""}</ul></section>`).join("")}
+    ${c.placeMismatch.length ? `<section data-n="${c.placeMismatch.length}"><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
       ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
-    ${c.yearMissing.length || c.nested.length ? `<section><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
+    ${c.yearMissing.length || c.nested.length ? `<section data-n="${c.yearMissing.length + c.nested.length}"><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
       ${c.yearMissing.map((x) => `<li><span>${nameLink(x.t.e)} a une coche datée de ${x.year} (${esc(L(x.t.cle).nom)}, ${esc(fmtShort(x.t.d))}) mais n'est pas dans la year list ${x.year}.</span> <button class="btn" data-addyl="${x.t.cle}/${x.t.id}">Ajouter à ${x.year}</button></li>`).join("")}
       ${c.nested.map((x) => `<li><span>${nameLink(x.t.e)} est dans ${esc(L(x.liste).nom)} mais pas dans ${esc(L(x.parent).nom)}.</span> <a class="btn" href="#/espece/${esc(x.t.e)}">Voir</a></li>`).join("")}
     </ul></section>` : ""}
-    <section><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p>
+    <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p>
       <h3 class="minor">Coches sans coordonnées</h3><p class="cap">${[...c.noCoords].filter(([k]) => !["jardin", "bureau"].includes(k)).map(([k, n]) => `<a href="#" data-nocoords="${k}">${esc(L(k).nom)} ${n}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
-      return `<section><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
+      return `<section data-n="${open.length}"><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
   </div>`;
+  // index of the categories: one chip per section, with what is left in it; a tap goes there
+  const secs = $$(".screen > section", view);
+  $("#tdnav").innerHTML = secs.map((sec, i) => {
+    sec.id = "td-" + i;
+    const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();
+    const n = +sec.dataset.n || 0;
+    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences");
+    return `<a href="#" data-td="${i}" class="${n ? "" : "zero"}" title="${esc(title)}">${esc(short)}<b>${n}</b></a>`;
+  }).join("");
+  $$("[data-td]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); $("#td-" + a.dataset.td).scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  tdSpy();
   $$("[data-act]").forEach((b) => b.addEventListener("click", () => { const [id, a] = b.dataset.act.split(":"); taskAct(id, a); }));
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
