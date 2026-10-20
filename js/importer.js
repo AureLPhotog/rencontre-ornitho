@@ -179,9 +179,10 @@ function review(el, props, ctx) {
       <div class="props">${g.slice(0, 400).map(line).join("")}${g.length > 400 ? `<p class="cap">… et ${g.length - 400} autres, comptées si le groupe est coché.</p>` : ""}</div></section>`; }).join("")
       + `<div class="row sticky-act"><button class="btn btn-primary btn-lg" id="imp-go" type="button">Enregistrer la sélection</button><span class="cap" id="imp-count"></span></div>`
       : `<p class="empty">Rien à ajouter ni à compléter : l'appli a déjà tout ce que contient ce fichier.</p>`}`;
+  const byId = new Map(props.map((p) => [String(p.id), p])); // ids are not positions: hidden proposals were filtered out
   const count = () => { const n = props.filter((p) => p.checked).length; const c = $("#imp-count"); if (c) c.textContent = `${n} ${plural(n, "changement")} sélectionné${n > 1 ? "s" : ""}`; };
-  $$("[data-p]", el).forEach((i) => i.addEventListener("change", () => { props[+i.dataset.p].checked = i.checked; count(); }));
-  $$("[data-all]", el).forEach((b) => b.addEventListener("click", () => { const g = groups.get(b.dataset.all), on = !g.every((p) => p.checked); g.forEach((p) => { p.checked = on; }); $$("[data-p]", el).forEach((i) => { i.checked = props[+i.dataset.p].checked; }); count(); }));
+  $$("[data-p]", el).forEach((i) => i.addEventListener("change", () => { byId.get(i.dataset.p).checked = i.checked; count(); }));
+  $$("[data-all]", el).forEach((b) => b.addEventListener("click", () => { const g = groups.get(b.dataset.all), on = !g.every((p) => p.checked); g.forEach((p) => { p.checked = on; }); $$("[data-p]", el).forEach((i) => { i.checked = byId.get(i.dataset.p).checked; }); count(); }));
   count();
   const unk = [...ctx.unknown];
   $$("[data-assoc]", el).forEach((i) => i.addEventListener("change", () => {
