@@ -128,7 +128,14 @@ function editForm(el, l) {
           if (t.d) M.ticks.filter((x) => x.e === t.e && x.d === t.d && x !== t).forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch }));
         }
       }
-      S.apply(ops, `Liste modifiée : ${nom}${ops.length > 1 ? ` (${ops.length - 1} coches placées)` : ""}`);
+      const placed = ops.length - 1;
+      // a numbered list: ticks without a number get one, by date after the numbers already given (undated ones last)
+      if (base.numerotee) {
+        const all = M.db.coches[l.cle] || []; let n = Math.max(0, ...all.map((t) => t.n || 0));
+        all.filter((t) => !t.n).sort((a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || (a.d || "").localeCompare(b.d || "")).forEach((t) => ops.push({ kind: "set-tick", cle: l.cle, id: t.id, patch: { n: ++n } }));
+      }
+      const numbered = ops.length - 1 - placed;
+      S.apply(ops, `Liste modifiée : ${nom}${placed ? ` (${placed} coches placées)` : ""}${numbered ? ` (${numbered} coches numérotées)` : ""}`);
       toast("Liste modifiée."); el.innerHTML = ""; return;
     }
     const k = kindSel.value;
