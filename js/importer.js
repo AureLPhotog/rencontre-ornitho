@@ -4,6 +4,7 @@ import { S, M, go } from "./app.js";
 import { PHOTO_FR, LIFERS, VU } from "./model.js";
 import { deptFromPlace, communeFromPlace, deptByName, listCovers } from "./geo.js";
 import { loadXlsx } from "./export.js";
+import { makeMatcher } from "./taxo.js";
 
 // ---------- reading files ----------
 async function readText(file) {
@@ -45,16 +46,8 @@ const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); re
 const COUNTRY_FIX = { GF: "Guyane", GP: "Guadeloupe", MQ: "Martinique", RE: "La Réunion", YT: "Mayotte", PM: "Saint-Pierre-et-Miquelon" };
 const countryName = (code) => { if (!code || code === "FR") return ""; if (COUNTRY_FIX[code]) return COUNTRY_FIX[code]; try { return new Intl.DisplayNames(["fr"], { type: "region" }).of(code) || code; } catch (_) { return code; } };
 
-// ---------- species matching ----------
-function matcher() {
-  const bySc = new Map(), byName = new Map();
-  const sc2 = (s) => norm(s).split(" ").slice(0, 2).join(" ");
-  M.db.especes.forEach((e) => { if (e.sc) bySc.set(sc2(e.sc), e.id); byName.set(norm(e.n), e.id); (e.al || []).forEach((a) => { if (!byName.has(norm(a))) byName.set(norm(a), e.id); }); });
-  return (name, sci) => {
-    const n = norm(unent(name).replace(/\(.*?\)/g, ""));
-    return byName.get(n) || (sci && bySc.get(sc2(unent(sci)))) || byName.get(norm(unent(name))) || null;
-  };
-}
+// ---------- species matching: the Latin name first (see taxo.js) ----------
+const matcher = () => { const m = makeMatcher(M.db.especes); return (name, sci) => { const r = m(unent(name), unent(sci)); return r ? r.id : null; }; };
 
 // one observation = { sid, name, d, l, p, lat, lon, dep, commune }
 function fromFauneFrance(rows) {
@@ -152,16 +145,19 @@ export function screenImport(view) {
     try {
       const rows = await readRows(f); if (rows.length < 2) throw new Error("Le fichier est vide.");
       const obs = (src === "ff" ? fromFauneFrance : src === "ebird" ? fromEbird : fromCocheurs)(rows);
-      const match = matcher(); const unknown = new Map();
-      obs.forEach((o) => { o.sid = match(o.name, o.sci); if (!o.sid) unknown.set(cap(unent(o.name)), (unknown.get(cap(unent(o.name))) || 0) + 1); });
-      const target = $("#imp-target").value;
-      const props = propose(obs, src, target);
-      msg.className = "msg ok"; msg.textContent = `${obs.length} ${plural(obs.length, "ligne")} lues, ${obs.filter((o) => o.sid).length} reconnues.`;
-      review($("#imp-res"), props, { src, target, unknown, file: f.name, obs });
+      const ctx = { src, target: $("#imp-target").value, file: f.name, obs };
+      run(ctx);
     } catch (err) { msg.className = "msg bad"; msg.textContent = err.message; }
   });
 }
 
+// match the species, propose, show; runs again after a name is associated by hand
+function run(ctx) {
+  const match = matcher(); ctx.unknown = new Map();
+  ctx.obs.forEach((o) => { o.sid = match(o.name, o.sci); if (!o.sid) { const k = cap(unent(o.name)); const u = ctx.unknown.get(k) || { n: 0, sci: unent(o.sci || "").trim() }; u.n++; ctx.unknown.set(k, u); } });
+  const msg = $("#imp-msg"); msg.className = "msg ok"; msg.textContent = `${ctx.obs.length} ${plural(ctx.obs.length, "ligne")} lues, ${ctx.obs.filter((o) => o.sid).length} reconnues.`;
+  review($("#imp-res"), propose(ctx.obs, ctx.src, ctx.target), ctx);
+}
 const KIND = { add: "Ajouter", date: "Dater", earlier: "Date différente", place: "Localiser" };
 function review(el, props, ctx) {
   const groups = new Map(); props.forEach((p) => { if (!groups.has(p.cle)) groups.set(p.cle, []); groups.get(p.cle).push(p); });
@@ -169,7 +165,11 @@ function review(el, props, ctx) {
   const nom = (cle) => (M.liste.get(cle) || { nom: "YL " + cle.slice(2) }).nom;
   const line = (p) => `<label class="chk prop"><input type="checkbox" data-p="${p.id}" ${p.checked ? "checked" : ""}><span><b>${esc(M.name(p.sid))}</b> · ${KIND[p.kind]} <small>${esc(p.why)}${p.o.l ? " · " + esc(p.o.l) : ""}${p.o.d && p.kind === "add" ? " · " + fmtShort(p.o.d) : ""}</small></span></label>`;
   el.innerHTML = `${ctx.src === "cocheurs" ? cocheursMissing(ctx) : ""}
-    ${ctx.unknown.size ? `<details class="panel"><summary>${ctx.unknown.size} ${plural(ctx.unknown.size, "nom")} non reconnu${ctx.unknown.size > 1 ? "s" : ""}, ignoré${ctx.unknown.size > 1 ? "s" : ""}</summary><p class="cap">${[...ctx.unknown].map(([n, c]) => `${esc(n)} (${c})`).join(" · ")}</p></details>` : ""}
+    ${ctx.unknown.size ? `<details class="panel" ${ctx.unknown.size < 15 ? "open" : ""}><summary>${ctx.unknown.size} ${plural(ctx.unknown.size, "nom")} non reconnu${ctx.unknown.size > 1 ? "s" : ""}, ignoré${ctx.unknown.size > 1 ? "s" : ""} pour l'instant</summary>
+      <p class="cap">Si c'est une espèce que tu as sous un autre nom, associe-la : l'appli retiendra ce nom et ce nom latin pour les prochains imports. Les hybrides et les « sp. » restent ignorés.</p>
+      <datalist id="dl-sp">${M.db.especes.map((e) => `<option value="${esc(e.n)}">`).join("")}</datalist>
+      <ul class="plain">${[...ctx.unknown].map(([n, u], i) => `<li class="lrow"><span class="grow"><b>${esc(n)}</b> <small class="cap">${u.sci ? `<i>${esc(u.sci)}</i> · ` : ""}${u.n} ${plural(u.n, "ligne")}</small></span>
+        <input class="field" list="dl-sp" data-assoc="${i}" placeholder="C'est…" style="max-width:220px"></li>`).join("")}</ul></details>` : ""}
     ${props.length ? order.map((cle) => { const g = groups.get(cle); return `<section class="panel"><div class="row between"><h3 class="minor" style="margin:0"><span class="chip-s" style="--c:${M.color(cle) || "#9A7400"}">${esc(nom(cle))}</span> ${g.length} ${plural(g.length, "proposition")}</h3><button type="button" class="linkish" data-all="${cle}">tout cocher / décocher</button></div>
       <div class="props">${g.slice(0, 400).map(line).join("")}${g.length > 400 ? `<p class="cap">… et ${g.length - 400} autres, comptées si le groupe est coché.</p>` : ""}</div></section>`; }).join("")
       + `<div class="row sticky-act"><button class="btn btn-primary btn-lg" id="imp-go" type="button">Enregistrer la sélection</button><span class="cap" id="imp-count"></span></div>`
@@ -178,6 +178,16 @@ function review(el, props, ctx) {
   $$("[data-p]", el).forEach((i) => i.addEventListener("change", () => { props[+i.dataset.p].checked = i.checked; count(); }));
   $$("[data-all]", el).forEach((b) => b.addEventListener("click", () => { const g = groups.get(b.dataset.all), on = !g.every((p) => p.checked); g.forEach((p) => { p.checked = on; }); $$("[data-p]", el).forEach((i) => { i.checked = props[+i.dataset.p].checked; }); count(); }));
   count();
+  const unk = [...ctx.unknown];
+  $$("[data-assoc]", el).forEach((i) => i.addEventListener("change", () => {
+    const e = M.db.especes.find((x) => norm(x.n) === norm(i.value)); if (!e) { toast("Choisis une espèce de la liste."); return; }
+    const [name, u] = unk[+i.dataset.assoc];
+    const patch = {};
+    if (norm(name) !== norm(e.n) && !(e.al || []).some((a) => norm(a) === norm(name))) patch.al = [...(e.al || []), name];
+    if (u.sci && norm(u.sci) !== norm(e.sc) && !(e.scs || []).some((a) => norm(a) === norm(u.sci))) patch.scs = [...(e.scs || []), u.sci];
+    if (Object.keys(patch).length) S.apply({ kind: "set-espece", id: e.id, patch }, `Autre nom : ${name}${u.sci ? " (" + u.sci + ")" : ""} = ${e.n}`);
+    toast(`« ${name} » associé à ${e.n}.`); setTimeout(() => run(ctx), 50);
+  }));
   const go2 = $("#imp-go"); if (go2) go2.addEventListener("click", () => apply(props.filter((p) => p.checked), ctx));
 }
 function cocheursMissing(ctx) {

@@ -26,7 +26,7 @@ function parentOptions(sel, self) {
 
 function editForm(el, l) {
   const isNew = !l;
-  const st = l ? { ...l, kind: l.region ? "reg" : l.deps ? "dep" : l.type === "pays" ? "pays" : l.communes ? "lieu" : "autre" } : { kind: "dep", nom: "", dans: PHOTO_FR, numerotee: false };
+  const st = l ? { ...l, kind: l.region ? "reg" : l.deps ? "dep" : l.type === "pays" ? "pays" : l.type === "lieu" || l.communes ? "lieu" : "autre" } : { kind: "dep", nom: "", dans: PHOTO_FR, numerotee: false };
   el.innerHTML = `<form class="panel" id="lf"><h3 class="minor" style="margin:0">${isNew ? "Nouvelle liste" : "Modifier « " + esc(l.nom) + " »"}</h3>
     ${isNew ? `<label>Type<select class="field" id="l-kind">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${st.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
     <label id="l-dep-w">Département<select class="field" id="l-dep">${DEPTS.map((d) => `<option value="${d.code}">${d.code} · ${esc(d.nom)}</option>`).join("")}</select></label>
@@ -91,7 +91,7 @@ function editForm(el, l) {
     $$("[data-rmp]").forEach((b) => b.addEventListener("click", () => { st.lieux.splice(+b.dataset.rmp, 1); showFixed(); })); };
   const kindNow = () => (kindSel ? kindSel.value : st.kind);
   // only the garden and the office have a fixed spot
-  const fixedOk = () => !isNew && ["jardin", "bureau"].includes(l.cle);
+  const fixedOk = () => (isNew ? kindNow() === "lieu" : ["jardin", "bureau"].includes(l.cle) || l.type === "lieu");
   $("#l-fixed-w").hidden = !fixedOk(); if (kindSel) kindSel.addEventListener("change", () => { $("#l-fixed-w").hidden = !fixedOk(); });
   showFixed();
   // the form for a new spot is built only when asked for, so its map is created while visible
@@ -132,7 +132,7 @@ function editForm(el, l) {
     }
     const k = kindSel.value;
     let cle = slug(nom), i = 2; while (M.liste.has(cle) || /^yl\d{4}$/.test(cle)) cle = slug(nom) + "-" + i++;
-    const liste = { cle, ...base, type: k === "pays" ? "pays" : "zone", ...geoOf(), ...(st.lieux.length && fixedOk() ? { lieux: st.lieux } : {}) };
+    const liste = { cle, ...base, type: k === "pays" ? "pays" : k === "lieu" ? "lieu" : "zone", ...geoOf(), ...(st.lieux.length && fixedOk() ? { lieux: st.lieux } : {}) };
     Object.keys(liste).forEach((x) => liste[x] == null && delete liste[x]);
     const ops = [{ kind: "add-liste", liste }];
     if ($("#l-fill").checked && found && found.ticks.length) {

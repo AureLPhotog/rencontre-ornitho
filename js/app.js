@@ -74,8 +74,8 @@ function screenHome() {
   const vu = M.vuOpen();
   const liferAll = new Set([...M.speciesOf(LIFERS).map((t) => t.e), ...vu.ab.map((t) => t.e)]).size;
   const side = (cles) => `<div class="side">${cles.filter((k) => M.liste.has(k)).map((k) => `<a href="#/liste/${k}">${esc(L(k).nom)} <b>${c(k)}</b></a>`).join("")}</div>`;
-  const zones = M.listes.filter((l) => l.type === "zone").map((l) => l.cle);
-  const others = M.listes.filter((l) => !["annee", "vu"].includes(l.type) && ![LIFERS, PHOTO_FR, "aura", "rhone", "jardin", "bureau", "ouessant"].includes(l.cle));
+  const zones = M.listes.filter((l) => l.type === "zone" || l.type === "lieu").map((l) => l.cle);
+  const others = M.listes.filter((l) => !["annee", "vu", "zone", "lieu", "photo"].includes(l.type));
   const guy = M.speciesOf("guyane"), gt = (k) => guy.filter((t) => norm(t.t) === k).length;
   const yr = M.years.slice().reverse();
   view.innerHTML = `<div class="screen keep-scroll">
@@ -194,8 +194,21 @@ function screenSpecies(sid) {
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
+    <details class="panel"><summary>Noms de l'espèce</summary>
+      <form id="names" class="form"><label>Nom<input class="field" id="n-n" value="${esc(e.n)}"></label>
+        <label>Nom latin <small>(la référence pour les imports)</small><input class="field" id="n-sc" value="${esc(e.sc || "")}"></label>
+        <label>Autres noms <small>(séparés par des virgules : Petit Chevalier, Lesser Yellowlegs…)</small><input class="field" id="n-al" value="${esc((e.al || []).join(", "))}"></label>
+        <label>Autres noms latins <small>(anciens ou d'autres nomenclatures)</small><input class="field" id="n-scs" value="${esc((e.scs || []).join(", "))}"></label>
+        <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
+  $("#names").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const list = (v) => v.split(/\s*[,;]\s*/).map((x) => x.trim()).filter(Boolean);
+    const patch = { n: $("#n-n").value.trim() || e.n, sc: $("#n-sc").value.trim() || null, al: list($("#n-al").value), scs: list($("#n-scs").value) };
+    if (!patch.al.length) patch.al = null; if (!patch.scs.length) patch.scs = null;
+    S.apply({ kind: "set-espece", id: sid, patch }, `Noms : ${patch.n}`); toast("Noms enregistrés.");
+  });
 }
 
 // ---------- more ----------

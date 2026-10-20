@@ -8,7 +8,7 @@ import { whereIs, listCovers, placeAt, distKm, outsideOf } from "./geo.js";
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
   // most precise first: a list contained in another one comes before it
-  const z = M.listes.filter((l) => l.type === "zone");
+  const z = M.listes.filter((l) => l.type === "zone" || l.type === "lieu");
   const depth = (cle) => M.chain(cle).length;
   return z.sort((a, b) => depth(b.cle) - depth(a.cle) || a.nom.localeCompare(b.nom, "fr"));
 };
