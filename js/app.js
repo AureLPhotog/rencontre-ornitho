@@ -7,6 +7,7 @@ import { mapView } from "./map.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
+import { distKm, whereIs } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -196,6 +197,20 @@ function screenYear(y) {
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
 
+// a name for a place known only by its coordinates: the same observation in another list,
+// a named tick within 300 m, else the commune (geo.api.gouv.fr, Nominatim abroad)
+async function nameFor(t) {
+  const named = M.ticks.filter((x) => x.l && x.lat != null && !["France", "Guyane", "Espagne"].includes(x.l));
+  const same = named.find((x) => x.e === t.e && t.d && x.d === t.d && distKm(x, t) < 2);
+  if (same) return { l: same.l, sl: same.sl || null };
+  let best = null, bd = 0.3; for (const x of named) { const d = distKm(x, t); if (d < bd) { bd = d; best = x; } }
+  if (best) return { l: best.l, sl: best.sl || null };
+  for (const x of M.db.lieux || []) if (x.lat != null && distKm(x, t) < 0.3) return { l: x.nom, sl: "appli" };
+  const w = await whereIs(t.lat, t.lon);
+  if (w && w.commune) return { l: w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune, sl: "geo" };
+  if (w && w.pays && !w.mer) return { l: w.pays, sl: "geo" };
+  return null;
+}
 // ---------- journal ----------
 function screenJournal() {
   const F = Object.assign({ q: "", cle: "", year: "", miss: "" }, UI.jf || {});
@@ -206,18 +221,31 @@ function screenJournal() {
     <div class="filters"><input class="field" type="search" id="jq" placeholder="Espèce, lieu, détail…" value="${esc(F.q)}">
       <select class="field" id="jl"><option value="">Toutes les listes</option>${lists.map((l) => `<option value="${l.cle}" ${F.cle === l.cle ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select>
       <select class="field" id="jy"><option value="">Toutes les années</option>${years.map((y) => `<option ${+F.year === y ? "selected" : ""}>${y}</option>`).join("")}<option value="none" ${F.year === "none" ? "selected" : ""}>Sans date</option></select>
-      <select class="field" id="jm"><option value="">Tout</option><option value="coords" ${F.miss === "coords" ? "selected" : ""}>Sans coordonnées</option><option value="lieu" ${F.miss === "lieu" ? "selected" : ""}>Sans lieu</option></select></div>
-    <p class="cap" id="jc"></p><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
+      <select class="field" id="jm"><option value="">Tout</option><option value="coords" ${F.miss === "coords" ? "selected" : ""}>Sans coordonnées</option><option value="lieu" ${F.miss === "lieu" ? "selected" : ""}>Sans lieu</option><option value="date" ${F.miss === "date" ? "selected" : ""}>Sans date</option></select></div>
+    <p class="cap" id="jc"></p><div class="row" id="jname" hidden><button class="btn" id="jname-go" type="button"></button><span class="cap">D'abord une coche de la même observation ou une coche déjà nommée à moins de 300 m, sinon la commune.</span></div><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
   let shown = 200;
   const draw = () => {
     const k = norm(F.q);
-    const res = M.ticks.filter((t) => (!F.cle || t.cle === F.cle) && (!F.year || (F.year === "none" ? !t.d : yearOf(t.d) === +F.year)) && (!F.miss || (F.miss === "coords" ? t.lat == null : !t.l))
+    const res = M.ticks.filter((t) => (!F.cle || t.cle === F.cle) && (!F.year || (F.year === "none" ? !t.d : yearOf(t.d) === +F.year)) && (!F.miss || (F.miss === "coords" ? t.lat == null : F.miss === "date" ? !t.d : !t.l))
       && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matches(k, M.name(t.e)) || M.matches(k, (M.esp.get(t.e) || {}).sc || "")))
       .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
     $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b> ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
     $("#more").hidden = res.length <= shown;
+    unnamed = F.miss === "lieu" ? res.filter((t) => t.lat != null) : [];
+    $("#jname").hidden = !unnamed.length; $("#jname-go").textContent = `Nommer ${unnamed.length} ${plural(unnamed.length, "lieu", "lieux")} d'après les coordonnées`;
   };
+  let unnamed = [];
+  $("#jname-go").addEventListener("click", async () => {
+    const b = $("#jname-go"); b.disabled = true; const ops = []; let i = 0;
+    for (const t of unnamed) {
+      b.textContent = `Recherche… ${++i}/${unnamed.length}`;
+      const n = await nameFor(t); if (n) ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: n.l, sl: n.sl } });
+    }
+    b.disabled = false;
+    if (!ops.length) { toast("Aucun lieu trouvé (pas de réseau ?)."); draw(); return; }
+    S.apply(ops, `Lieux nommés d'après les coordonnées : ${ops.length} ${plural(ops.length, "coche")}`); toast(`${ops.length} ${plural(ops.length, "lieu", "lieux")} ${ops.length > 1 ? "nommés" : "nommé"}.`);
+  });
   const set = (p) => { Object.assign(F, p); saveUI({ jf: F }); shown = 200; draw(); };
   $("#jq").addEventListener("input", (e) => set({ q: e.target.value }));
   $("#jl").addEventListener("change", (e) => set({ cle: e.target.value }));

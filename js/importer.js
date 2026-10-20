@@ -121,6 +121,12 @@ function propose(obs, source, target) {
   // ticks of the same species and day, anywhere, without coordinates: the observation gives them
   if (source !== "cocheurs") {
     const byDay = new Map(); valid.forEach((o) => { if (o.d && o.lat != null) byDay.set(o.sid + "|" + o.d, o); });
+    // ticks with coordinates but no place name: the place of an observation of the file within 300 m
+    const named = valid.filter((o) => o.l && o.lat != null);
+    for (const t of M.ticks) if (t.lat != null && !t.l && !P.some((x) => x.t === t)) {
+      let best = null, bd = 0.3; for (const o of named) { const d = distKm(o, t); if (d < bd) { bd = d; best = o; } }
+      if (best) push({ kind: "name", cle: t.cle, sid: t.e, o: best, t, checked: true, why: `lieu sans nom : ${best.l} (à ${Math.round(bd * 1000)} m)` });
+    }
     for (const t of M.ticks) if (t.d && t.lat == null) { const o = byDay.get(t.e + "|" + t.d); if (o && !P.some((x) => x.t === t)) push({ kind: "place", cle: t.cle, sid: t.e, o, t, checked: true, why: `coordonnées manquantes, même jour${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` }); }
   }
   return P.filter((x) => !x.hide);
@@ -163,12 +169,12 @@ function run(ctx) {
   const msg = $("#imp-msg"); msg.className = "msg ok"; msg.textContent = `${ctx.obs.length} ${plural(ctx.obs.length, "ligne")} lues, ${ctx.obs.filter((o) => o.sid).length} reconnues.`;
   review($("#imp-res"), propose(ctx.obs, ctx.src, ctx.target), ctx);
 }
-const KIND = { add: "Ajouter", date: "Dater", earlier: "Date différente", place: "Localiser" };
+const KIND = { add: "Ajouter", date: "Dater", earlier: "Date différente", place: "Localiser", name: "Nommer le lieu" };
 function review(el, props, ctx) {
   const groups = new Map(); props.forEach((p) => { if (!groups.has(p.cle)) groups.set(p.cle, []); groups.get(p.cle).push(p); });
   const order = [...groups.keys()].sort((a, b) => M.listes.findIndex((l) => l.cle === a) - M.listes.findIndex((l) => l.cle === b));
   const nom = (cle) => (M.liste.get(cle) || { nom: "YL " + cle.slice(2) }).nom;
-  const line = (p) => `<label class="chk prop"><input type="checkbox" data-p="${p.id}" ${p.checked ? "checked" : ""}><span><b>${esc(M.name(p.sid))}</b> · ${KIND[p.kind]} <small>${esc(p.why)}${p.o.l ? " · " + esc(p.o.l) : ""}${p.o.d && p.kind === "add" ? " · " + fmtShort(p.o.d) : ""}</small></span></label>`;
+  const line = (p) => `<label class="chk prop"><input type="checkbox" data-p="${p.id}" ${p.checked ? "checked" : ""}><span><b>${esc(M.name(p.sid))}</b> · ${KIND[p.kind]} <small>${esc(p.why)}${p.o.l && p.kind !== "name" ? " · " + esc(p.o.l) : ""}${p.o.d && p.kind === "add" ? " · " + fmtShort(p.o.d) : ""}</small></span></label>`;
   el.innerHTML = `${ctx.src === "cocheurs" ? cocheursMissing(ctx) : ""}
     ${ctx.unknown.size ? `<details class="panel" ${ctx.unknown.size < 15 ? "open" : ""}><summary>${ctx.unknown.size} ${plural(ctx.unknown.size, "nom")} non reconnu${ctx.unknown.size > 1 ? "s" : ""}, ignoré${ctx.unknown.size > 1 ? "s" : ""} pour l'instant</summary>
       <p class="cap">Si c'est une espèce que tu as sous un autre nom, associe-la : l'appli retiendra ce nom et ce nom latin pour les prochains imports. Les hybrides et les « sp. » restent ignorés.</p>
@@ -219,7 +225,8 @@ function apply(sel, ctx) {
       const pl = p.t.lat == null || p.kind === "earlier" ? place(p.o) : {};
       if (Object.keys(pl).length && fixedSpot(l)) pl.sl = "fixe";
       ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...pl }, src: ctx.src });
-    } else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
+    } else if (p.kind === "name") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src });
+    else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
   }
   const label = { ff: "Import Faune-France", ebird: "Import eBird", cocheurs: `Import cocheurs (${(M.liste.get(ctx.target) || {}).nom})` }[ctx.src];
   S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}`);
