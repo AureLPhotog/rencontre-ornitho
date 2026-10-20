@@ -20,6 +20,16 @@ export function fmtDay(iso, withYear = true) {
 // where a tick's date (sd) or place (sl) comes from
 export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées" };
 export const srcName = (k) => SOURCES[k] || (k ? k : "source inconnue");
+// photo quality, per species (the best photo you have of it, wherever it was taken), best first
+export const QUALITES = [
+  { v: "Photo déjà masterclass", court: "Masterclass", c: "#7A3E9D" },
+  { v: "Très bonne photo", court: "Très bonne", c: "#2E7D4F" },
+  { v: "Bonne photo", court: "Bonne", c: "#1F7A8C" },
+  { v: "Photo Ok", court: "Ok", c: "#6B7280" },
+  { v: "Photo à refaire", court: "À refaire", c: "#C2410C" },
+];
+export const qualite = (q) => QUALITES.find((x) => x.v === q) || null; // « à cocher » is a status, not a quality
+export const qTag = (q) => { const x = qualite(q); return x ? `<span class="qtag" style="--c:${x.c}" title="${x.v}">${x.court}</span>` : ""; };
 export const fmtShort = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 export const isFrance = (p) => !p || norm(p) === "france";
 

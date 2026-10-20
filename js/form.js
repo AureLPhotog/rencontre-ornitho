@@ -7,7 +7,7 @@ function ownPlaceNear(pt) {
   }
   return best;
 }
-import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName } from "./util.js";
+import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName, QUALITES } from "./util.js";
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
@@ -55,6 +55,7 @@ export function renderAdd(view, q) {
       <label>Espèce<div class="combo"><input class="field" id="f-sp" placeholder="Tape quelques lettres…" value="${esc(st.e ? M.name(st.e) : "")}" aria-autocomplete="list" aria-controls="f-sug"><ul id="f-sug" class="sug" role="listbox" hidden></ul></div></label>
       <p class="cap" id="f-known"></p>
       <div class="seg wide" role="group" aria-label="Photo"><button type="button" data-photo="1">Photographiée</button><button type="button" data-photo="0">Vue ou entendue</button></div>
+      <div class="qrow" id="f-qrow"><span class="cap">Qualité photo de l'espèce</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag" style="--c:${x.c}" data-fq="${esc(x.v)}">${x.court}</button>`).join("")}</div></div>
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d)}" max="${todayIso()}"></label>
         <label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p)}"></label></div>
       <datalist id="dl-pays">${["France", ...countries()].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
@@ -85,6 +86,7 @@ export function renderAdd(view, q) {
   sug.addEventListener("mousedown", (e) => { const li = e.target.closest("li"); if (!li) return; e.preventDefault(); if (li.dataset.new) setSpecies("", cap(spIn.value.trim())); else setSpecies(options[+li.dataset.i].id); });
   spIn.addEventListener("blur", () => setTimeout(() => { sug.hidden = true; }, 150));
 
+  $$("[data-fq]").forEach((b) => b.addEventListener("click", () => { st.q = st.q === b.dataset.fq ? null : b.dataset.fq; refresh(); }));
   $$("[data-photo]").forEach((b) => b.addEventListener("click", () => { st.photo = b.dataset.photo === "1"; store("ro.draft", { ...draft, photo: st.photo }); refresh(); }));
   $$("[data-zone]").forEach((b) => b.addEventListener("click", () => {
     st.zone = b.dataset.zone; saveUI({ zone: st.zone });
@@ -136,6 +138,10 @@ export function renderAdd(view, q) {
 
   function refresh() {
     $$("[data-photo]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.photo === "1") === st.photo)));
+    // quality: the species' own, until another one is picked here
+    const q = st.q !== undefined && st.q !== null ? st.q : st.q === null ? null : (M.esp.get(st.e) || {}).q;
+    $("#f-qrow").hidden = !st.photo;
+    $$("[data-fq]").forEach((b) => { const on = b.dataset.fq === q; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
     const fr = isFrance(st.p);
     $("#f-zone-wrap").hidden = !fr;
     $$("[data-zone]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.zone === st.zone)));
@@ -177,6 +183,7 @@ export function renderAdd(view, q) {
       M.ticks.filter((t) => t.e === st.e && t.d === st.d && ((t.l || null) !== place.l || (t.lat ?? null) !== place.lat || (t.lon ?? null) !== place.lon))
         .forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: place }));
     }
+    if (st.photo && st.q !== undefined && st.q !== ((M.esp.get(sid) || {}).q || null)) ops.push({ kind: "set-espece", id: sid, patch: { q: st.q } });
     if (st.l && st.lat != null) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon, ...(isFrance(st.p) ? {} : { p: st.p }) } });
     const name = sid === st.e ? M.name(sid) : st.newName;
     const where = chosen.map((x) => (M.liste.get(x.cle) || { nom: `YL ${x.year}` }).nom).join(", ");

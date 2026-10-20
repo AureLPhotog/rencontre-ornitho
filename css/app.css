@@ -182,3 +182,10 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .stat .v{font-family:var(--f-display);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2;overflow-wrap:anywhere}
 .stat .v small{font-size:14px;color:var(--muted);font-weight:400}.stat .s{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 @media (max-width:480px){.stat .v{font-size:18px}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}}
+/* photo quality of a species */
+.qtag{--c:var(--muted);display:inline-block;margin-left:6px;font-family:var(--f-data);font-size:10.5px;font-weight:600;line-height:1.5;color:var(--c);border:1px solid color-mix(in srgb,var(--c) 50%,transparent);background:color-mix(in srgb,var(--c) 12%,transparent);border-radius:999px;padding:0 7px;white-space:nowrap;vertical-align:1px}
+@media (prefers-color-scheme:dark){.qtag{color:color-mix(in srgb,var(--c) 50%,white)}}
+.qrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0}
+.qpick{display:flex;flex-wrap:wrap;gap:6px}
+.qpick .qtag{margin:0;font-size:13px;padding:4px 12px;cursor:pointer;opacity:.75}
+.qpick .qtag.on{background:var(--c);color:#fff;border-color:var(--c);opacity:1}

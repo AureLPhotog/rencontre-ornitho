@@ -1,5 +1,5 @@
 // Rencontre Ornitho: router, shell and the read-only screens.
-import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName } from "./util.js";
+import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName, QUALITES, qualite, qTag } from "./util.js";
 import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
@@ -59,7 +59,7 @@ function loading() {
 }
 
 // ---------- shared bits ----------
-const nameLink = (sid) => `<a href="#/espece/${esc(sid)}">${esc(M.name(sid))}</a>`;
+const nameLink = (sid) => `<a href="#/espece/${esc(sid)}">${esc(M.name(sid))}</a>${qTag((M.esp.get(sid) || {}).q)}`;
 const L = (cle) => M.liste.get(cle) || { nom: cle };
 const numOf = (t) => t.n ? `n°${t.n}` : "";
 const cstyle = (cle) => `style="--c:${M.color(cle)}"`;
@@ -232,7 +232,7 @@ function screenJournal() {
       && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matches(k, M.name(t.e)) || M.matches(k, (M.esp.get(t.e) || {}).sc || "")))
       .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
-    $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b> ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
+    $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b>${qTag((M.esp.get(t.e) || {}).q)} ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
     $("#more").hidden = res.length <= shown;
     unnamed = F.miss === "lieu" ? res.filter((t) => t.lat != null) : [];
     $("#jname").hidden = !unnamed.length; $("#jname-go").textContent = `Nommer ${unnamed.length} ${plural(unnamed.length, "lieu", "lieux")} d'après les coordonnées`;
@@ -273,7 +273,7 @@ function screenSpecies(sid) {
     return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: ts.map((t) => `<b>${esc(L(t.cle).nom)}</b>${M.rankOf(t) ? " n°" + M.rankOf(t) : ""} · ${esc(t.d ? fmtShort(t.d) : "")}`).join("<br>") + (ts[0].l ? `<br>${esc(ts[0].l)}` : "") };
   });
   view.innerHTML = `<div class="screen">
-    <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}${e.q ? `<p class="cap">Qualité photo : ${esc(e.q)}</p>` : ""}</header>
+    <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Qualité photo</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}</div></header>
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
@@ -285,6 +285,7 @@ function screenSpecies(sid) {
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
+  $$("[data-q]").forEach((b) => b.addEventListener("click", () => { const v = e.q === b.dataset.q ? null : b.dataset.q; S.apply({ kind: "set-espece", id: sid, patch: { q: v } }, `Qualité photo : ${e.n} → ${v || "aucune"}`); toast(v ? `Qualité : ${qualite(v).court}.` : "Qualité retirée."); }));
   $("#names").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const list = (v) => v.split(/\s*[,;]\s*/).map((x) => x.trim()).filter(Boolean);
