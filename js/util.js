@@ -46,3 +46,27 @@ export function toast(text, kind = "") {
   document.body.appendChild(t); requestAnimationFrame(() => t.classList.add("in"));
   setTimeout(() => { t.classList.remove("in"); setTimeout(() => t.remove(), 300); }, kind === "error" ? 6000 : 3200);
 }
+
+// Search tolerant of typos, as in Oiseaux d'Ouessant: the typed text may appear anywhere in the name with a few
+// mistakes (letter added, missing, replaced or swapped), about one per 4 letters (Sellers' algorithm).
+export function distanceInText(p, t) {
+  const m = p.length; if (!m || t.includes(p)) return 0;
+  let prev = new Array(m + 1), cur = new Array(m + 1), prev2 = new Array(m + 1);
+  for (let i = 0; i <= m; i++) prev[i] = i;
+  let best = prev[m];
+  for (let j = 1; j <= t.length; j++) {
+    cur[0] = 0; // the match may start anywhere
+    for (let i = 1; i <= m; i++) {
+      const cost = p[i - 1] === t[j - 1] ? 0 : 1;
+      let v = Math.min(prev[i] + 1, cur[i - 1] + 1, prev[i - 1] + cost);
+      if (i > 1 && j > 1 && p[i - 1] === t[j - 2] && p[i - 2] === t[j - 1]) v = Math.min(v, prev2[i - 2] + 1); // swapped letters
+      cur[i] = v;
+    }
+    if (cur[m] < best) best = cur[m];
+    [prev2, prev, cur] = [prev, cur, prev2];
+  }
+  return best;
+}
+export const maxErrors = (q, ratio = 0.25) => (q.length < 4 ? 0 : Math.max(1, Math.floor(q.length * ratio)));
+// does the typed text (already normalised) match this text, typos allowed? returns the number of mistakes, or -1
+export function fuzzyIn(q, text) { const d = distanceInText(q, norm(text)); return d <= maxErrors(q) ? d : -1; }

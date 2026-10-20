@@ -1,5 +1,5 @@
 // Everything the screens show is derived here from the raw database (lists, species, ticks).
-import { norm, isFrance, yearOf } from "./util.js";
+import { norm, isFrance, yearOf, distanceInText, maxErrors } from "./util.js";
 import { deptFromPlace, communeFromPlace, placeAt, distKm } from "./geo.js";
 
 export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
@@ -72,20 +72,24 @@ export function buildModel(db) {
   M.index = db.especes.map((e) => ({ e, keys: [norm(e.n), ...(e.al || []).map(norm), norm(e.sc)].filter(Boolean) }));
   M.search = (q, limit = 12) => {
     const k = norm(q); if (!k) return [];
-    const words = k.split(" ");
+    const words = k.split(" "), max = maxErrors(k);
     const scored = [];
     for (const { e, keys } of M.index) {
       let best = -1;
       for (const key of keys) {
         if (key === k) best = Math.max(best, 100);
         else if (key.startsWith(k)) best = Math.max(best, 80);
+        else if (key.replace(/ /g, "").startsWith(k.replace(/ /g, ""))) best = Math.max(best, 75); // "rouge gorge" = "rougegorge"
         else if (words.every((w) => key.split(" ").some((p) => p.startsWith(w)))) best = Math.max(best, 60);
         else if (key.includes(k)) best = Math.max(best, 40);
+        else if (max) { const d = distanceInText(k, key); if (d <= max) best = Math.max(best, 30 - 4 * d); } // typos
       }
       if (best >= 0) scored.push({ e, s: best + (M.bySp.has(e.id) ? 10 : 0) });
     }
     return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
   };
+  // the same matching for a whole text (journal, list filters)
+  M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };
 
   // Photo France ticks by calendar day, all years together
   M.calendar = () => {

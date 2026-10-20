@@ -114,7 +114,7 @@ function screenList(cle) {
     <ul class="ticks" id="rows">${sorted.map((t) => row(t)).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
-  const filter = () => { const k = norm(q.value); saveUI({ q: q.value }); rows.forEach((li) => { li.hidden = k && !norm(li.textContent).includes(k); }); };
+  const filter = () => { const k = norm(q.value); saveUI({ q: q.value }); rows.forEach((li) => { li.hidden = !!k && !M.matches(k, li.textContent); }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
 }
@@ -159,7 +159,7 @@ function screenJournal() {
   const draw = () => {
     const k = norm(F.q);
     const res = M.ticks.filter((t) => (!F.cle || t.cle === F.cle) && (!F.year || (F.year === "none" ? !t.d : yearOf(t.d) === +F.year)) && (!F.miss || (F.miss === "coords" ? t.lat == null : !t.l))
-      && (!k || norm(`${M.name(t.e)} ${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k)))
+      && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matches(k, M.name(t.e)) || M.matches(k, (M.esp.get(t.e) || {}).sc || "")))
       .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
     $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b> ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
