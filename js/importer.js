@@ -247,6 +247,18 @@ function apply(sel, ctx) {
     } else if (p.kind === "name") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src });
     else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
   }
+  // garden, office: the same observation in the other lists (same species, same day, within 1 km or not placed)
+  // takes the fixed place too, so the lists stay linked
+  for (const op of ops.slice()) {
+    if (op.kind !== "add-tick" && op.kind !== "set-tick") continue;
+    if (!fixedSpot(M.liste.get(op.cle))) continue;
+    const old = op.kind === "set-tick" ? M.ticks.find((x) => x.cle === op.cle && x.id === op.id) : null;
+    const t = op.kind === "add-tick" ? op.tick : { ...old, ...op.patch };
+    if (!t || !t.d || t.lat == null) continue;
+    const spot = { l: t.l || null, lat: t.lat, lon: t.lon, p: null, sl: "fixe" };
+    M.ticks.filter((x) => x.e === t.e && x.d === t.d && x.cle !== op.cle && !fixedSpot(M.liste.get(x.cle)) && (x.lat == null || distKm(x, t) < 1) && (x.l !== spot.l || x.lat !== spot.lat || x.lon !== spot.lon))
+      .forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: spot }));
+  }
   const label = { ff: "Import Faune-France", ebird: "Import eBird", cocheurs: `Import cocheurs (${(M.liste.get(ctx.target) || {}).nom})` }[ctx.src];
   S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}`);
   toast(`${sel.length} ${plural(sel.length, "changement")} enregistré${sel.length > 1 ? "s" : ""}.${keepSrc ? " Les dates du fichier servent maintenant aux vérifications de « À faire »." : ""}`);
