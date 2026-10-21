@@ -381,7 +381,7 @@ function taskView(t) {
     body = `${esc(t.quoi)}<small>${esc(t.det || "")}${t.det ? " · " : ""}aujourd'hui : ${tickLine(tk)}</small>`; btns = act("ok", "C'est bon") + edit;
   } else if (t.kind === "choose-date") {
     done = done || tk.d === t.other;
-    body = `${tk.d ? `Appli <b>${fmtShort(tk.d)}</b> · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>` : `Pas de date dans l'appli · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>`}<small>${tickLine(tk)}</small>`;
+    body = `${tk.d ? `Appli <b>${fmtShort(tk.d)}</b> · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>` : `Pas de date dans l'appli · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>`}<small>${t.det ? esc(t.det) + " · " : ""}${tickLine(tk)}</small>`;
     btns = (tk.d ? act("keep", `Garder ${fmtShort(tk.d)}`) : "") + act("take", `${tk.d ? "Prendre" : "Reporter"} ${fmtShort(t.other)}`, !tk.d);
   } else if (t.kind === "cocheurs") {
     body = `${esc(t.quoi)}<small>${tickLine(tk)}</small>`; btns = act("ok", "Fait dans cocheurs");
@@ -392,14 +392,20 @@ function taskAct(id, a) {
   const t = M.db.taches.find((x) => x.id === id); if (!t) return;
   const label = `${t.sid ? M.name(t.sid) + " · " : ""}${t.quoi || "date"}`;
   if (a === "ok") return S.apply({ kind: "set-tache", id, patch: { fait: true } }, `Fait : ${label}`);
-  if (a === "keep") return S.apply({ kind: "set-tache", id, patch: { fait: true, det: `date de l'appli gardée : à corriger dans ${t.src || "cocheurs"}` } }, `Date gardée : ${label}`);
+  if (a === "keep") return S.apply({ kind: "set-tache", id, patch: { fait: true, det: t.src === "photos" ? `date de l'appli gardée (${t.det || "photo"})` : `date de l'appli gardée : à corriger dans ${t.src || "cocheurs"}` } }, `Date gardée : ${label}`);
   if (a === "take") {
     const tk = M.tick(t.sid, t.cle); if (!tk) return;
     // the first sighting moves to that day: its place comes from a tick of the same day, or is to be completed
     const same = M.ticks.find((x) => x.e === t.sid && x.d === t.other && x !== tk && (x.lat != null || x.l));
-    const patch = { d: t.other, l: same ? same.l || null : null, lat: same ? same.lat ?? null : null, lon: same ? same.lon ?? null : null, sl: same ? same.sl || null : null };
-    S.apply([{ kind: "set-tick", cle: tk.cle, id: tk.id, patch, src: "cocheurs" }, { kind: "set-tache", id, patch: { fait: true } }], `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}, ${fmtShort(t.other)})`);
-    toast(same ? "Date et lieu repris." : "Date reprise ; le lieu de ce jour-là est à compléter.");
+    // a photo date usually corrects only the day: without a tick on that day, the place stays
+    const patch = !same && t.src === "photos" ? { d: t.other } : { d: t.other, l: same ? same.l || null : null, lat: same ? same.lat ?? null : null, lon: same ? same.lon ?? null : null, sl: same ? same.sl || null : null };
+    // the same observation in the other lists (same species, same old date) moves with it, so the dates stay linked:
+    // a photo date holds for every list of that observation; a cocheurs date only for the lists inside that one
+    const inside = new Set(M.descendants ? M.descendants(t.cle) : []);
+    const twins = tk.d ? M.ticks.filter((x) => x.e === t.sid && x.d === tk.d && x !== tk && (t.src === "photos" || inside.has(x.cle))) : [];
+    const src = t.src === "photos" ? "photo" : "cocheurs";
+    S.apply([tk, ...twins].map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch, src })).concat({ kind: "set-tache", id, patch: { fait: true } }), `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}${twins.length ? ` et ${twins.length} autre${twins.length > 1 ? "s" : ""} liste${twins.length > 1 ? "s" : ""}` : ""}, ${fmtShort(t.other)})`);
+    toast(same ? "Date et lieu repris." : t.src === "photos" ? "Date reprise ; le lieu ne change pas." : "Date reprise ; le lieu de ce jour-là est à compléter.");
   }
 }
 // the chip of the category being read is highlighted, and kept visible in the bar

@@ -18,7 +18,7 @@ export function fmtDay(iso, withYear = true) {
   return `${d === 1 ? "1er" : d} ${MOIS[m - 1]}${withYear ? " " + y : ""}`;
 }
 // where a tick's date (sd) or place (sl) comes from
-export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées" };
+export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées", photo: "date de la photo (EXIF)" };
 export const srcName = (k) => SOURCES[k] || (k ? k : "source inconnue");
 // photo quality, per species (the best photo you have of it, wherever it was taken), best first
 export const QUALITES = [
