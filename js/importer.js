@@ -242,7 +242,7 @@ function apply(sel, ctx) {
       if (Object.keys(pl).length && fixedSpot(l)) pl.sl = "fixe";
       ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...pl }, src: ctx.src });
       // same species, same old date in other lists: the same observation, it moves with it (dates stay linked)
-      if (p.t.d) M.ticks.filter((x) => x.e === p.t.e && x.d === p.t.d && x !== p.t && !sel.some((q) => q.t === x) && !done.has(x))
+      if (p.t.d) M.ticks.filter((x) => x.e === p.t.e && x.d === p.t.d && x !== p.t && M.sameYearOk(x, p.o.d) && !sel.some((q) => q.t === x) && !done.has(x))
         .forEach((x) => { done.add(x); ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: { d: p.o.d, ...(Object.keys(pl).length && !fixedSpot(M.liste.get(x.cle)) ? (({ sl, ...r }) => r)(pl) : {}) }, src: ctx.src }); });
     } else if (p.kind === "name") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src });
     else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });

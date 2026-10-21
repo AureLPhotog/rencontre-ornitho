@@ -90,6 +90,8 @@ export function buildModel(db) {
     return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
   };
   // the same matching for a whole text (journal, list filters)
+  // a year-list tick only takes a date of its own year: other lists of the observation can move, it stays
+  M.sameYearOk = (t, d) => (M.liste.get(t.cle) || {}).type !== "annee" || (d || "").slice(0, 4) === String(M.liste.get(t.cle).annee || t.cle.slice(2));
   // the days you have photos of a species (from your photo folders): [date, time of the first photo, file]
   M.photoDays = (sid) => ((db.photos || {})[sid] || {}).jours || [];
   M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
@@ -151,7 +153,9 @@ export function buildModel(db) {
       if (!t.d || t.cle === VU || /^(vu|entendu)/i.test(t.t || "") || t.vf === t.d) continue;
       if (M.photoOn(t.e, t.d)) continue; // a photo that day: the photo is the reference, not the sighting
       let near = null, gap = 41, sameDay = null; // up to 40 days: a slip of one month (02/05 for 02/06) is common
+      const yl = (M.liste.get(t.cle) || {}).type === "annee";
       for (const [src, s] of SRC) for (const x of (s.especes || {})[t.e] || []) {
+        if (yl && x[0].slice(0, 4) !== t.d.slice(0, 4)) continue; // a year list never leaves its year
         const g = Math.abs(Date.parse(x[0]) - Date.parse(t.d)) / DAY, at = { src, d: x[0], l: x[1], lat: x[2], lon: x[3] };
         if (g === 0) { if (!sameDay || at.lat == null || t.lat == null || distKm(at, t) < distKm(sameDay, t)) sameDay = at; }
         else if (g < gap) { gap = g; near = at; }
@@ -176,6 +180,8 @@ export function buildModel(db) {
     }
     for (const g of pg.values()) g.ticks = M.ticks.filter((x) => x.e === g.e && x.d === g.d && x.cle !== VU);
     out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
+    // year-list ticks dated in another year
+    out.yearWrong = M.ticks.filter((t) => t.d && !M.sameYearOk(t, t.d));
     out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);
     return out;
   };

@@ -228,7 +228,7 @@ export function renderEdit(view, cle, id) {
     const ops = [{ kind: "set-tick", cle, id, patch }];
     if ($("#f-twins") && $("#f-twins").checked) {
       const shared = {}; ["d", "l", "lat", "lon", "p"].forEach((k) => { if (k in patch) shared[k] = patch[k]; });
-      if (Object.keys(shared).length) twins.forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: shared }));
+      if (Object.keys(shared).length) twins.filter((x) => !("d" in shared) || M.sameYearOk(x, shared.d)).forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: shared }));
     }
     // a date that matches ticks of other lists: take their place if this one has none, so they stay linked
     const nd = "d" in patch ? patch.d : t0.d;
