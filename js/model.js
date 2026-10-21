@@ -90,6 +90,9 @@ export function buildModel(db) {
     return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
   };
   // the same matching for a whole text (journal, list filters)
+  // the days you have photos of a species (from your photo folders): [date, time of the first photo, file]
+  M.photoDays = (sid) => ((db.photos || {})[sid] || {}).jours || [];
+  M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
   // a species by any of its names: French name, other names, Latin names
   M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));
   M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };
@@ -146,6 +149,7 @@ export function buildModel(db) {
     const SRC = Object.entries(db.sources || {}), DAY = 864e5, groups = new Map();
     if (SRC.length) for (const t of M.ticks) {
       if (!t.d || t.cle === VU || /^(vu|entendu)/i.test(t.t || "") || t.vf === t.d) continue;
+      if (M.photoOn(t.e, t.d)) continue; // a photo that day: the photo is the reference, not the sighting
       let near = null, gap = 41, sameDay = null; // up to 40 days: a slip of one month (02/05 for 02/06) is common
       for (const [src, s] of SRC) for (const x of (s.especes || {})[t.e] || []) {
         const g = Math.abs(Date.parse(x[0]) - Date.parse(t.d)) / DAY, at = { src, d: x[0], l: x[1], lat: x[2], lon: x[3] };
@@ -159,6 +163,19 @@ export function buildModel(db) {
       if (!groups.has(k)) groups.set(k, { e: t.e, d: t.d, ticks: [], near, gap, lieu: gap === 0, km: gap === 0 ? Math.round(distKm(near, t)) : null }); groups.get(k).ticks.push(t);
     }
     out.srcDate = [...groups.values()].sort((a, b) => a.gap - b.gap || a.d.localeCompare(b.d));
+    // the photo is the reference: a photo older than the tick (Photo France: the first photo ever; a year list:
+    // the first photo of that year) means the tick is too late. One row per observation (species and day).
+    const pg = new Map();
+    for (const t of M.ticks) {
+      if (!t.d || t.vf === t.d || /^(vu|entendu)/i.test(t.t || "")) continue;
+      const l = M.liste.get(t.cle); if (!l || !(t.cle === PHOTO_FR || (l.type === "annee" && isFrance(t.p)))) continue;
+      const days = M.photoDays(t.e); if (!days.length) continue;
+      const first = t.cle === PHOTO_FR ? days[0] : days.find((x) => x[0].slice(0, 4) === t.d.slice(0, 4));
+      if (!first || first[0] >= t.d) continue;
+      const k = t.e + "|" + t.d; if (!pg.has(k)) pg.set(k, { e: t.e, d: t.d, photo: first, ticks: [] });
+    }
+    for (const g of pg.values()) g.ticks = M.ticks.filter((x) => x.e === g.e && x.d === g.d && x.cle !== VU);
+    out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
     out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);
     return out;
   };

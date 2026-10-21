@@ -19,7 +19,7 @@ const cleOfPath = (path) => (path.match(/^data\/coches\/([a-z0-9-]+)\.json$/) ||
 const sourcePath = (k) => `data/sources/${k}.json`;
 const srcOfPath = (path) => (path.match(/^data\/sources\/([a-z0-9-]+)\.json$/) || [])[1];
 
-function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {} }; }
+function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {}, photos: {} }; }
 function dbFromFiles(files) {
   const db = emptyDb();
   for (const [path, f] of Object.entries(files)) {
@@ -29,6 +29,7 @@ function dbFromFiles(files) {
     else if (path === P.lieux) db.lieux = j.lieux || [];
     else if (path === P.taches) db.taches = j.taches || [];
     else if (srcOfPath(path)) db.sources[srcOfPath(path)] = j;
+    else if (path === "data/ref/photos.json") db.photos = j.especes || {}; // the days you have photos of each species (read only)
     else { const cle = cleOfPath(path); if (cle) db.coches[cle] = j.coches || []; }
   }
   db.listes.forEach((l) => { if (!db.coches[l.cle]) db.coches[l.cle] = []; });
