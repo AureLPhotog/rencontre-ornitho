@@ -435,10 +435,27 @@ function tdSpy() {
 }
 window.addEventListener("scroll", () => { if ($("#tdnav")) tdSpy(); }, { passive: true });
 function screenTodo() {
-  const c = M.checks(), tasks = M.db.taches;
-  const cats = [...new Set(tasks.map((t) => t.cat))];
+  // one list to work on (or all): every category keeps only what concerns that list
+  const sel = M.liste.has(UI.tdList) ? UI.tdList : "", on = (cle) => !sel || cle === sel, anyOn = (ts) => !sel || ts.some((t) => t.cle === sel);
+  const all = M.checks(), c = { ...all,
+    outside: all.outside.filter((x) => on(x.t.cle)), photoEarlier: all.photoEarlier.filter((x) => anyOn(x.ticks)), srcDate: all.srcDate.filter((x) => anyOn(x.ticks)),
+    badNum: all.badNum.filter((x) => on(x.cle)), placeMismatch: all.placeMismatch.filter((x) => anyOn([x.src, ...x.others])),
+    yearWrong: all.yearWrong.filter((t) => on(t.cle)), yearMissing: all.yearMissing.filter((x) => on(x.t.cle) || on("yl" + x.year)), nested: all.nested.filter((x) => on(x.liste) || on(x.parent)),
+    undated: all.undated.filter((t) => on(t.cle)) };
+  // ticks without GPS point or without place name, one row per observation (species and day)
+  const ng = new Map();
+  for (const t of M.ticks) {
+    if (t.lat != null && t.l) continue;
+    const k = t.d ? t.e + "|" + t.d : t.cle + "|" + t.id; if (!ng.has(k)) ng.set(k, []); ng.get(k).push(t);
+  }
+  c.noPlace = [...ng.values()].filter(anyOn).map((ts) => ({ ts, e: ts[0].e, d: ts[0].d, gps: ts.some((t) => t.lat == null), name: ts.some((t) => !t.l), main: (sel && ts.find((t) => t.cle === sel)) || ts[0] }))
+    .sort((a, b) => (b.d || "").localeCompare(a.d || "") || M.name(a.e).localeCompare(M.name(b.e), "fr"));
+  const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
+  const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
-  view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2><nav class="tdnav" id="tdnav" aria-label="Catégories"></nav>
+  view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
+    <label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
+    <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav>
     ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
     ${c.photoEarlier.length ? `<section data-n="${c.photoEarlier.length}"><h3 class="minor">Une photo plus ancienne que la coche · ${c.photoEarlier.length}</h3><p class="cap">Tes dossiers photos ont l'espèce avant la date de la coche (Photo France : ta toute première photo ; year list : ta première photo de l'année). La photo fait foi. « Prendre » met la date de la photo dans toutes les listes de cette observation, sans toucher au lieu ; « Garder » confirme la date de l'appli.</p><ul class="todo">
       ${c.photoEarlier.map((x, i) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ticks.map((t) => t.cle))].map(chip).join(" ")}<small>appli <b>${esc(fmtShort(x.d))}</b> · photo <b>${esc(fmtShort(x.photo[0]))}</b>${x.photo[2] ? " · " + esc(x.photo[2].split("/").pop()) : ""}</small></span><span class="row"><button class="btn" data-phtake="${i}">Prendre ${esc(fmtShort(x.photo[0]))}</button><button class="btn" data-phkeep="${i}">Garder ${esc(fmtShort(x.d))}</button></span></li>`).join("")}</ul></section>` : ""}
@@ -452,8 +469,8 @@ function screenTodo() {
       ${c.yearMissing.map((x) => `<li><span>${nameLink(x.t.e)} a une coche datée de ${x.year} (${esc(L(x.t.cle).nom)}, ${esc(fmtShort(x.t.d))}) mais n'est pas dans la year list ${x.year}.</span> <button class="btn" data-addyl="${x.t.cle}/${x.t.id}">Ajouter à ${x.year}</button></li>`).join("")}
       ${c.nested.map((x) => `<li><span>${nameLink(x.t.e)} est dans ${esc(L(x.liste).nom)} mais pas dans ${esc(L(x.parent).nom)}.</span> <a class="btn" href="#/espece/${esc(x.t.e)}">Voir</a></li>`).join("")}
     </ul></section>` : ""}
-    <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p>
-      <h3 class="minor">Coches sans coordonnées</h3><p class="cap">${[...c.noCoords].filter(([k]) => !["jardin", "bureau"].includes(k)).map(([k, n]) => `<a href="#" data-nocoords="${k}">${esc(L(k).nom)} ${n}</a>`).join(" · ") || "Aucune."}</p></section>
+    <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
+    <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
       return `<section data-n="${open.length}"><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
   </div>`;
@@ -463,7 +480,7 @@ function screenTodo() {
     sec.id = "td-" + i;
     const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();
     const n = +sec.dataset.n || 0;
-    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne");
+    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu");
     return `<a href="#" data-td="${i}" class="${n ? "" : "zero"}" title="${esc(title)}">${esc(short)}<b>${n}</b></a>`;
   }).join("");
   $$("[data-td]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); $("#td-" + a.dataset.td).scrollIntoView({ behavior: "smooth", block: "start" }); }));
@@ -471,7 +488,7 @@ function screenTodo() {
   $$("[data-act]").forEach((b) => b.addEventListener("click", () => { const [id, a] = b.dataset.act.split(":"); taskAct(id, a); }));
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
-  $$("[data-nocoords]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.nocoords, year: "", miss: "coords" } }); go("#/journal"); }));
+  $("#tdl").addEventListener("change", (e) => { saveUI({ tdList: e.target.value }); tdLast = -1; screenTodo(); });
   const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null, sl: x.src.sl || null } }));
   $$("[data-align]").forEach((b) => b.addEventListener("click", () => { const x = c.placeMismatch[+b.dataset.align]; S.apply(alignOps(x), `Lieu aligné : ${M.name(x.src.e)} (${fmtShort(x.src.d)})`); }));
   $$("[data-phtake]").forEach((b) => b.addEventListener("click", () => { const x = c.photoEarlier[+b.dataset.phtake];

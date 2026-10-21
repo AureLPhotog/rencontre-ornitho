@@ -212,3 +212,5 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .hres a{text-decoration:none;color:var(--ink)}
 .hres a b{font-weight:600}
 .hwhere{display:flex;flex-wrap:wrap;gap:4px}
+.tdlist{display:flex;align-items:center;gap:10px;margin:0 0 4px;font-size:14px;color:var(--muted)}
+.tdlist select{flex:1;max-width:320px}
