@@ -428,7 +428,7 @@ let tdLast = -1;
 function tdSpy() {
   const nav = $("#tdnav"); if (!nav) return;
   const secs = $$(".screen > section[id^='td-']", view); let cur = 0;
-  secs.forEach((s, i) => { if (s.getBoundingClientRect().top < 130) cur = i; });
+  secs.forEach((s, i) => { if (s.getBoundingClientRect().top < 180) cur = i; });
   if (cur === tdLast && nav.querySelector(".on")) return; tdLast = cur;
   $$("[data-td]", nav).forEach((a) => a.classList.toggle("on", +a.dataset.td === cur));
   const a = nav.querySelector(".on"); if (a) nav.scrollTo({ left: a.offsetLeft - 16, behavior: "smooth" });
@@ -454,8 +454,8 @@ function screenTodo() {
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
   view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
-    <label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
-    <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav>
+    <div class="tdbar"><label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
+    <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav></div>
     ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
     ${c.photoEarlier.length ? `<section data-n="${c.photoEarlier.length}"><h3 class="minor">Une photo plus ancienne que la coche · ${c.photoEarlier.length}</h3><p class="cap">Tes dossiers photos ont l'espèce avant la date de la coche (Photo France : ta toute première photo ; year list : ta première photo de l'année). La photo fait foi. « Prendre » met la date de la photo dans toutes les listes de cette observation, sans toucher au lieu ; « Garder » confirme la date de l'appli.</p><ul class="todo">
       ${c.photoEarlier.map((x, i) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ticks.map((t) => t.cle))].map(chip).join(" ")}<small>appli <b>${esc(fmtShort(x.d))}</b> · photo <b>${esc(fmtShort(x.photo[0]))}</b>${x.photo[2] ? " · " + esc(x.photo[2].split("/").pop()) : ""}</small></span><span class="row"><button class="btn" data-phtake="${i}">Prendre ${esc(fmtShort(x.photo[0]))}</button><button class="btn" data-phkeep="${i}">Garder ${esc(fmtShort(x.d))}</button></span></li>`).join("")}</ul></section>` : ""}
