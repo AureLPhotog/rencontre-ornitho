@@ -336,7 +336,7 @@ function screenMore() {
   const c = M.checks(), open = M.db.taches.map(taskView).filter((v) => !v.done).length;
   view.innerHTML = `<div class="screen"><h2>Plus</h2><nav class="menu">
     <a href="#/calendrier"><b>Calendrier des coches photo</b><small>Toutes les années superposées</small></a>
-    <a href="#/a-faire"><b>À faire</b><small>${open} ${plural(open, "tâche")} · ${c.undated.length} coches sans date · ${c.yearMissing.length + c.nested.length + c.srcDate.length + c.photoEarlier.length} incohérences</small></a>
+    <a href="#/a-faire"><b>À faire</b><small>${open} ${plural(open, "tâche")} · ${c.undated.length} coches sans date · ${c.yearMissing.length + c.nested.length + c.srcDate.length + c.photoEarlier.length + c.zoneFirst.length} incohérences</small></a>
     <a href="#/listes"><b>Mes listes</b><small>Créer une liste région, département, lieu ou pays ; couleurs</small></a>
     <a href="#/import"><b>Importer</b><small>Faune-France, eBird ou cocheurs : compléter dates, lieux et espèces</small></a>
     <button type="button" id="xx"><b>Exporter en Excel</b><small>Toutes les coches, les espèces et les listes</small></button>
@@ -441,7 +441,7 @@ function screenTodo() {
     outside: all.outside.filter((x) => on(x.t.cle)), photoEarlier: all.photoEarlier.filter((x) => anyOn(x.ticks)), srcDate: all.srcDate.filter((x) => anyOn(x.ticks)),
     badNum: all.badNum.filter((x) => on(x.cle)), placeMismatch: all.placeMismatch.filter((x) => anyOn([x.src, ...x.others])),
     yearWrong: all.yearWrong.filter((t) => on(t.cle)), yearMissing: all.yearMissing.filter((x) => on(x.t.cle) || on("yl" + x.year)), nested: all.nested.filter((x) => on(x.liste) || on(x.parent)),
-    undated: all.undated.filter((t) => on(t.cle)) };
+    undated: all.undated.filter((t) => on(t.cle)), zoneFirst: all.zoneFirst.filter((x) => on(x.zone) || on(x.first.cle)) };
   // ticks without GPS point or without place name, one row per observation (species and day)
   const ng = new Map();
   for (const t of M.ticks) {
@@ -457,6 +457,8 @@ function screenTodo() {
     <div class="tdbar"><label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
     <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav></div>
     ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
+    ${c.zoneFirst.length ? `<section data-n="${c.zoneFirst.length}"><h3 class="minor">Première donnée de la zone · ${c.zoneFirst.length}</h3><p class="cap">Une liste de région, de département ou de commune commence à ta première photo prise dans la zone, quelle que soit la liste qui la porte (Photo France, Lifers, year list, Rhône, Jardin…). Ici, une coche placée dans la zone est plus ancienne que celle de la liste, ou la liste n'a pas encore l'espèce.</p><ul class="todo">
+      ${c.zoneFirst.map((x, i) => `<li><span>${nameLink(x.e)} ${chip(x.zone)}<small>${x.zt ? `${esc(L(x.zone).nom)} <b>${esc(fmtShort(x.zt.d))}</b> · ` : `pas dans ${esc(L(x.zone).nom)} · `}${chip(x.first.cle)} <b>${esc(fmtShort(x.first.d))}</b>${x.first.l ? " · " + esc(x.first.l) : ""}</small></span><span class="row"><button class="btn" data-zftake="${i}">${x.zt ? "Prendre " + esc(fmtShort(x.first.d)) : "Ajouter à " + esc(L(x.zone).nom)}</button>${x.zt ? `<button class="btn" data-zfkeep="${i}">Garder ${esc(fmtShort(x.zt.d))}</button>` : ""}</span></li>`).join("")}</ul></section>` : ""}
     ${c.photoEarlier.length ? `<section data-n="${c.photoEarlier.length}"><h3 class="minor">Une photo plus ancienne que la coche · ${c.photoEarlier.length}</h3><p class="cap">Tes dossiers photos ont l'espèce avant la date de la coche (Photo France : ta toute première photo ; year list : ta première photo de l'année). La photo fait foi. « Prendre » met la date de la photo dans toutes les listes de cette observation, sans toucher au lieu ; « Garder » confirme la date de l'appli.</p><ul class="todo">
       ${c.photoEarlier.map((x, i) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ticks.map((t) => t.cle))].map(chip).join(" ")}<small>appli <b>${esc(fmtShort(x.d))}</b> · photo <b>${esc(fmtShort(x.photo[0]))}</b>${x.photo[2] ? " · " + esc(x.photo[2].split("/").pop()) : ""}</small></span><span class="row"><button class="btn" data-phtake="${i}">Prendre ${esc(fmtShort(x.photo[0]))}</button><button class="btn" data-phkeep="${i}">Garder ${esc(fmtShort(x.d))}</button></span></li>`).join("")}</ul></section>` : ""}
     ${c.srcDate.length ? `<section data-n="${c.srcDate.length}"><h3 class="minor">Pas d'accord avec Faune-France / eBird · ${c.srcDate.length}</h3><p class="cap">Soit ton dernier import n'a pas l'espèce ce jour-là mais l'a à quelques jours près (40 au plus), soit il l'a le même jour mais à plus de 20 km : souvent une erreur de date ou de lieu. « Prendre » reprend la date et le lieu de la source dans toutes les listes de cette observation ; « Garder » confirme ce qu'a l'appli.</p><ul class="todo">
@@ -480,7 +482,7 @@ function screenTodo() {
     sec.id = "td-" + i;
     const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();
     const n = +sec.dataset.n || 0;
-    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu");
+    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu").replace(/^Première donnée de la zone$/, "Première de la zone");
     return `<a href="#" data-td="${i}" class="${n ? "" : "zero"}" title="${esc(title)}">${esc(short)}<b>${n}</b></a>`;
   }).join("");
   $$("[data-td]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); $("#td-" + a.dataset.td).scrollIntoView({ behavior: "smooth", block: "start" }); }));
@@ -491,6 +493,13 @@ function screenTodo() {
   $("#tdl").addEventListener("change", (e) => { saveUI({ tdList: e.target.value }); tdLast = -1; screenTodo(); });
   const alignOps = (x) => x.others.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: x.src.l || null, lat: x.src.lat ?? null, lon: x.src.lon ?? null, p: x.src.p || null, sl: x.src.sl || null } }));
   $$("[data-align]").forEach((b) => b.addEventListener("click", () => { const x = c.placeMismatch[+b.dataset.align]; S.apply(alignOps(x), `Lieu aligné : ${M.name(x.src.e)} (${fmtShort(x.src.d)})`); }));
+  $$("[data-zftake]").forEach((b) => b.addEventListener("click", () => { const x = c.zoneFirst[+b.dataset.zftake], f = x.first;
+    const data = { d: f.d, l: f.l || null, lat: f.lat ?? null, lon: f.lon ?? null, h: f.h || null, sh: f.sh || null, sd: f.sd || null, sl: f.sl || null, vf: null };
+    if (x.zt) S.apply({ kind: "set-tick", cle: x.zone, id: x.zt.id, patch: data }, `${L(x.zone).nom} : ${M.name(x.e)} au ${fmtShort(f.d)} (première donnée de la zone)`);
+    else { const l = M.liste.get(x.zone), tick = { id: `${x.zone}-${Date.now().toString(36)}`, e: x.e }; Object.entries(data).forEach(([k, v]) => { if (v != null) tick[k] = v; }); if (l.numerotee) tick.n = M.nextNum(x.zone);
+      S.apply({ kind: "add-tick", cle: x.zone, tick }, `Ajout : ${M.name(x.e)} (${l.nom}, ${fmtShort(f.d)})`); }
+    toast(x.zt ? "Date et lieu repris." : "Ajoutée ; pense à renuméroter si besoin."); }));
+  $$("[data-zfkeep]").forEach((b) => b.addEventListener("click", () => { const x = c.zoneFirst[+b.dataset.zfkeep]; S.apply({ kind: "set-tick", cle: x.zone, id: x.zt.id, patch: { vf: x.zt.d } }, `Date confirmée : ${M.name(x.e)} (${L(x.zone).nom}, ${fmtShort(x.zt.d)})`); }));
   $$("[data-phtake]").forEach((b) => b.addEventListener("click", () => { const x = c.photoEarlier[+b.dataset.phtake];
     S.apply(x.ticks.filter((t) => M.sameYearOk(t, x.photo[0])).map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { d: x.photo[0], h: x.photo[1] || null, sh: x.photo[1] ? "photo" : null, vf: null }, src: "photo" })), `Date de la photo : ${M.name(x.e)} (${fmtShort(x.d)} → ${fmtShort(x.photo[0])})`); toast("Date de la photo reprise dans toutes les listes de cette observation."); }));
   $$("[data-phkeep]").forEach((b) => b.addEventListener("click", () => { const x = c.photoEarlier[+b.dataset.phkeep];

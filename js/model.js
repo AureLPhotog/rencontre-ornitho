@@ -191,6 +191,28 @@ export function buildModel(db) {
     }
     for (const g of pg.values()) { const base = M.ticks.find((x) => x.e === g.e && x.d === g.d && x.cle === PHOTO_FR) || M.ticks.find((x) => x.e === g.e && x.d === g.d); g.ticks = M.ticks.filter((x) => x.cle !== VU && M.sameObs(base, x)); }
     out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
+    // a zone list (region, department, commune) starts with the first photo taken inside it: the earliest dated
+    // photo tick of any list (Photo France, Lifers, year lists, sub-zones, garden…) whose place is in the zone
+    out.zoneFirst = [];
+    const zones = M.listes.filter((l) => l.deps || l.communes);
+    const inZone = (z, t) => {
+      if (t.cle === z.cle) return false;
+      if (M.chain(t.cle).includes(z.cle)) return true; // a sub-list of the zone (Rhône in AURA, Jardin in Rhône)
+      if (!t.l || !isFrance(t.p)) return false;
+      const dep = deptFromPlace(t.l), commune = communeFromPlace(t.l);
+      return (dep || commune) ? listCovers(z, { dep, commune }) : false;
+    };
+    const photoTick = (t) => t.d && t.cle !== VU && !/^(vu|entendu)/i.test(t.t || "");
+    const key2 = (t) => t.d + " " + (t.h || "99:99");
+    for (const z of zones) {
+      const firsts = new Map();
+      for (const t of M.ticks) if (photoTick(t) && inZone(z, t)) { const f = firsts.get(t.e); if (!f || key2(t) < key2(f)) firsts.set(t.e, t); }
+      for (const [e, f] of firsts) {
+        const zt = (db.coches[z.cle] || []).find((x) => x.e === e);
+        if (!zt) out.zoneFirst.push({ zone: z.cle, e, first: f, zt: null });
+        else if (zt.d && f.d < zt.d && zt.vf !== zt.d) out.zoneFirst.push({ zone: z.cle, e, first: f, zt: { ...zt, cle: z.cle } });
+      }
+    }
     // year-list ticks dated in another year
     out.yearWrong = M.ticks.filter((t) => t.d && !M.sameYearOk(t, t.d));
     out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);
