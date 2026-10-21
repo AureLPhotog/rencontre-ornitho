@@ -417,7 +417,7 @@ function taskAct(id, a) {
     // the same observation in the other lists (same species, same old date) moves with it, so the dates stay linked:
     // a photo date holds for every list of that observation; a cocheurs date only for the lists inside that one
     const inside = new Set(M.descendants ? M.descendants(t.cle) : []);
-    const twins = tk.d ? M.ticks.filter((x) => x.e === t.sid && x.d === tk.d && x !== tk && (t.src === "photos" || inside.has(x.cle)) && M.sameYearOk(x, t.other)) : [];
+    const twins = tk.d ? M.ticks.filter((x) => x !== tk && M.sameObs(tk, x) && (t.src === "photos" || inside.has(x.cle)) && M.sameYearOk(x, t.other)) : [];
     const src = t.src === "photos" ? "photo" : "cocheurs";
     S.apply([tk, ...twins].map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch, src })).concat({ kind: "set-tache", id, patch: { fait: true } }), `Date reprise de ${t.src || "cocheurs"} : ${M.name(t.sid)} (${L(t.cle).nom}${twins.length ? ` et ${twins.length} autre${twins.length > 1 ? "s" : ""} liste${twins.length > 1 ? "s" : ""}` : ""}, ${fmtShort(t.other)})`);
     toast(same ? "Date et lieu repris." : t.src === "photos" ? "Date reprise ; le lieu ne change pas." : "Date reprise ; le lieu de ce jour-là est à compléter.");

@@ -1,6 +1,6 @@
 // Everything the screens show is derived here from the raw database (lists, species, ticks).
 import { norm, isFrance, yearOf, distanceInText, maxErrors } from "./util.js";
-import { deptFromPlace, communeFromPlace, placeAt, distKm } from "./geo.js";
+import { deptFromPlace, communeFromPlace, placeAt, distKm, listCovers } from "./geo.js";
 
 export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
 const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || (a.d || "").localeCompare(b.d || "") || ((a.n || 0) - (b.n || 0));
@@ -90,6 +90,15 @@ export function buildModel(db) {
     return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
   };
   // the same matching for a whole text (journal, list filters)
+  // two ticks of the same species and day are the same observation, unless a zone list (AURA, Rhône, Ouessant…)
+  // holds one of them and the other's place is outside that zone: then you saw it twice that day
+  const zoneOk = (z, o) => {
+    const l = M.liste.get(z.cle); if (!l || !(l.deps || l.communes)) return true;
+    if (!isFrance(o.p)) return false;
+    const dep = o.l ? deptFromPlace(o.l) : null, commune = o.l ? communeFromPlace(o.l) : null;
+    return !dep && !commune ? true : listCovers(l, { dep, commune });
+  };
+  M.sameObs = (a, b) => a.e === b.e && a.d === b.d && zoneOk(a, b) && zoneOk(b, a);
   // a year-list tick only takes a date of its own year: other lists of the observation can move, it stays
   M.sameYearOk = (t, d) => (M.liste.get(t.cle) || {}).type !== "annee" || (d || "").slice(0, 4) === String(M.liste.get(t.cle).annee || t.cle.slice(2));
   // the days you have photos of a species (from your photo folders): [date, time of the first photo, file]
@@ -143,7 +152,8 @@ export function buildModel(db) {
       if (new Set(ts.map(key)).size < 2) continue;
       const src = ts.slice().sort((a, b) => ((a.lat != null ? 0 : 2) + (a.l ? 0 : 1)) - ((b.lat != null ? 0 : 2) + (b.l ? 0 : 1)) || prec(a.cle) - prec(b.cle))[0];
       if (src.lat == null && !src.l) continue;
-      out.placeMismatch.push({ src, others: ts.filter((t) => t !== src && key(t) !== key(src)) });
+      const others = ts.filter((t) => t !== src && key(t) !== key(src) && M.sameObs(src, t));
+      if (others.length) out.placeMismatch.push({ src, others });
     }
     // a date that Faune-France / eBird do not have, while they have the species a few days apart: one row per
     // observation (species and day), all its lists together; « garder » marks the ticks (vf = the date checked)
@@ -163,7 +173,8 @@ export function buildModel(db) {
       // the same day in the source: fine, unless the app puts it more than 10 km from where the source says
       if (sameDay) { if (t.lat == null || sameDay.lat == null || distKm(sameDay, t) <= 20) continue; near = sameDay; gap = 0; }
       if (!near) continue;
-      const k = t.e + "|" + t.d + "|" + (gap === 0 ? "lieu" : "date");
+      let k = t.e + "|" + t.d + "|" + (gap === 0 ? "lieu" : "date");
+      if (groups.has(k) && !M.sameObs(groups.get(k).ticks[0], t)) k += "|" + t.cle; // another observation the same day
       if (!groups.has(k)) groups.set(k, { e: t.e, d: t.d, ticks: [], near, gap, lieu: gap === 0, km: gap === 0 ? Math.round(distKm(near, t)) : null }); groups.get(k).ticks.push(t);
     }
     out.srcDate = [...groups.values()].sort((a, b) => a.gap - b.gap || a.d.localeCompare(b.d));
@@ -178,7 +189,7 @@ export function buildModel(db) {
       if (!first || first[0] >= t.d) continue;
       const k = t.e + "|" + t.d; if (!pg.has(k)) pg.set(k, { e: t.e, d: t.d, photo: first, ticks: [] });
     }
-    for (const g of pg.values()) g.ticks = M.ticks.filter((x) => x.e === g.e && x.d === g.d && x.cle !== VU);
+    for (const g of pg.values()) { const base = M.ticks.find((x) => x.e === g.e && x.d === g.d && x.cle === PHOTO_FR) || M.ticks.find((x) => x.e === g.e && x.d === g.d); g.ticks = M.ticks.filter((x) => x.cle !== VU && M.sameObs(base, x)); }
     out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
     // year-list ticks dated in another year
     out.yearWrong = M.ticks.filter((t) => t.d && !M.sameYearOk(t, t.d));

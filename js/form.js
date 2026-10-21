@@ -232,7 +232,7 @@ export function renderAdd(view, q) {
     }
     if (st.e && st.d && (st.l || st.lat != null)) {
       const place = { l: st.l ? st.l.trim() : null, lat: st.lat, lon: st.lon, p: isFrance(st.p) ? null : st.p };
-      M.ticks.filter((t) => t.e === st.e && t.d === st.d && ((t.l || null) !== place.l || (t.lat ?? null) !== place.lat || (t.lon ?? null) !== place.lon))
+      M.ticks.filter((t) => t.e === st.e && t.d === st.d && M.sameObs(t, { e: st.e, d: st.d, cle: "", l: place.l, p: place.p || undefined }) && ((t.l || null) !== place.l || (t.lat ?? null) !== place.lat || (t.lon ?? null) !== place.lon))
         .forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: place }));
     }
     if (st.photo && st.q !== undefined && st.q !== ((M.esp.get(sid) || {}).q || null)) ops.push({ kind: "set-espece", id: sid, patch: { q: st.q } });
@@ -252,7 +252,7 @@ export function renderEdit(view, cle, id) {
   if (!t0 || !l) { view.innerHTML = '<p class="empty">Cette coche n\'existe plus.</p>'; return; }
   const st = { ...t0 };
   // the same sighting ticked in other lists (same species, same day): they share date and place
-  const twins = t0.d ? M.ticks.filter((x) => x.e === t0.e && !(x.cle === cle && x.id === id) && x.d === t0.d) : [];
+  const twins = t0.d ? M.ticks.filter((x) => !(x.cle === cle && x.id === id) && M.sameObs({ ...t0, cle }, x)) : [];
   view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(M.name(t0.e))}</h1><p class="cap">${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p>${t0.d || t0.l || t0.lat != null ? `<p class="cap">Source de la date : ${t0.d ? esc(srcName(t0.sd)) : "—"} · du lieu : ${t0.l || t0.lat != null ? esc(srcName(t0.sl)) : "—"}</p>` : ""}</header>
     <form id="ed" class="form">
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d || "")}"></label>${l.numerotee ? `<label>N°<input class="field" type="number" min="1" id="f-n" value="${esc(st.n || "")}"></label>` : `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>`}</div>
