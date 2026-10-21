@@ -24,6 +24,7 @@ const zoneLists = () => {
 function placeFields(st) {
   return `<label>Lieu<input class="field" id="f-lieu" list="dl-lieux" autocomplete="off" placeholder="Nom du lieu" value="${esc(st.l || "")}"></label>
     <datalist id="dl-lieux">${M.db.lieux.slice(0, 300).map((p) => `<option value="${esc(p.nom)}">`).join("")}</datalist>
+    <div class="combo mapq"><input class="field" id="f-mapq" type="search" autocomplete="off" placeholder="Chercher un lieu sur la carte (étang, lieu-dit, commune…)" aria-controls="f-mapsug"><ul id="f-mapsug" class="sug" role="listbox" hidden></ul></div>
     <div class="mapbox" id="f-map"></div>
     <div class="coords"><span id="f-coords">${st.lat != null ? `${st.lat}, ${st.lon}` : "Touche la carte pour placer le point, ou ◎ pour ta position."}</span>
       <button type="button" class="linkish" id="f-clear" ${st.lat == null ? "hidden" : ""}>effacer</button></div>`;
@@ -42,7 +43,58 @@ function wirePlace(st, onChange) {
   });
   $("#f-lieu").addEventListener("input", (e) => { st.l = e.target.value; });
   $("#f-clear").addEventListener("click", () => { st.lat = st.lon = null; show(); });
+  wireMapSearch(mp);
   return mp;
+}
+
+// search a place to move the map there; the point itself is then placed by a tap
+// (your own places first, then IGN lieux-dits and communes in France, then OpenStreetMap elsewhere)
+function wireMapSearch(mp) {
+  const q = $("#f-mapq"), sug = $("#f-mapsug"); if (!q || !mp.map) return;
+  let res = [], timer = null, seq = 0, ring = null;
+  const own = (k) => {
+    const seen = new Set(), out = [];
+    for (const x of [...(M.db.lieux || []).map((p) => ({ nom: p.nom, lat: p.lat, lon: p.lon })), ...M.ticks.filter((t) => t.l && t.lat != null).map((t) => ({ nom: t.l, lat: t.lat, lon: t.lon }))]) {
+      if (x.lat == null || seen.has(x.nom) || !norm(x.nom).includes(k)) continue; seen.add(x.nom); out.push({ ...x, src: "tes lieux", z: 16 }); if (out.length >= 5) break;
+    }
+    return out;
+  };
+  const getJ = async (u) => { try { const r = await fetch(u); return r.ok ? await r.json() : null; } catch (_) { return null; } };
+  const feat = (j, src, z) => ((j && j.features) || []).map((f) => { const p = f.properties || {}, c = (f.geometry || {}).coordinates || [];
+    const nom = p.toponym || (Array.isArray(p.name) ? p.name[0] : p.name) || p.label; const where = [Array.isArray(p.city) ? p.city[0] : p.city, Array.isArray(p.depcode) ? p.depcode[0] : p.depcode || p.context].filter(Boolean).join(", ");
+    const cat = Array.isArray(p.category) ? p.category.filter((x) => x !== "administratif").slice(-1)[0] : "";
+    return nom && c.length ? { nom, detail: [cat, where].filter(Boolean).join(" · "), lat: c[1], lon: c[0], src, z } : null; }).filter(Boolean);
+  const draw = () => {
+    sug.hidden = !res.length;
+    sug.innerHTML = res.map((r, i) => `<li role="option" data-i="${i}">${esc(r.nom)}<small>${esc([r.detail, r.src].filter(Boolean).join(" · "))}</small></li>`).join("");
+  };
+  const search = async (v) => {
+    const k = norm(v), my = ++seq; if (k.length < 3) { res = []; draw(); return; }
+    res = own(k); draw();
+    const e = encodeURIComponent(v);
+    const [poi, adr, osm] = await Promise.all([
+      getJ(`https://data.geopf.fr/geocodage/search?q=${e}&index=poi&limit=6`),
+      getJ(`https://data.geopf.fr/geocodage/search?q=${e}&index=address&limit=3`),
+      getJ(`https://nominatim.openstreetmap.org/search?format=json&limit=3&accept-language=fr&q=${e}`),
+    ]);
+    if (my !== seq) return;
+    const world = (Array.isArray(osm) ? osm : []).map((o) => ({ nom: o.name || o.display_name.split(",")[0], detail: o.display_name.split(",").slice(1, 3).join(",").trim(), lat: +o.lat, lon: +o.lon, src: "OpenStreetMap", z: 14 }));
+    res = [...res, ...feat(poi, "IGN", 16), ...feat(adr, "adresse", 15), ...world].slice(0, 14);
+    if (!res.length) { sug.hidden = false; sug.innerHTML = '<li class="cap">Rien trouvé (ou pas de réseau).</li>'; return; }
+    draw();
+  };
+  q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => search(q.value.trim()), 350); });
+  q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); if (res[0]) pick(res[0]); } });
+  q.addEventListener("blur", () => setTimeout(() => { sug.hidden = true; }, 200));
+  q.addEventListener("focus", () => { if (res.length) sug.hidden = false; });
+  const pick = (r) => {
+    sug.hidden = true; q.value = r.nom;
+    mp.map.setView([r.lat, r.lon], r.z || 15);
+    if (ring) ring.remove();
+    ring = window.L.circleMarker([r.lat, r.lon], { radius: 14, color: "#0A7895", weight: 2, fillOpacity: 0.08 }).addTo(mp.map);
+    toast("Touche la carte à l'endroit précis pour placer le point.");
+  };
+  sug.addEventListener("pointerdown", (ev) => { const li = ev.target.closest("[data-i]"); if (li) { ev.preventDefault(); pick(res[+li.dataset.i]); } });
 }
 
 // ---------- add ----------
