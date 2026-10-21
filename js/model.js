@@ -164,7 +164,11 @@ export function buildModel(db) {
   M.renumber = (cle) => {
     const dated = (db.coches[cle] || []).filter((t) => t.d && t.n);
     const slots = dated.map((t) => t.n).sort((a, b) => a - b);
-    const order = dated.slice().sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n);
+    // within a day, the ticks that have a time (h, from the photo or Faune-France; never shown) go by time,
+    // in the places of the timed ticks; the others keep their place
+    const order = [], days = new Map();
+    dated.slice().sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n).forEach((t) => { if (!days.has(t.d)) days.set(t.d, []); days.get(t.d).push(t); });
+    for (const g of days.values()) { const timed = g.filter((t) => t.h).sort((a, b) => a.h.localeCompare(b.h) || a.n - b.n); let i = 0; g.forEach((t) => order.push(t.h ? timed[i++] : t)); }
     return order.map((t, i) => ({ t: { ...t, cle }, to: slots[i] })).filter((x) => x.t.n !== x.to);
   };
   return M;

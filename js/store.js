@@ -197,6 +197,7 @@ function stampSource(op) {
   } else if (op.kind === "set-tick" && op.patch) {
     const p = (op.patch = { ...op.patch });
     if ("d" in p && !("sd" in p)) p.sd = p.d ? s : null;
+    if ("d" in p && !("h" in p)) { p.h = null; p.sh = null; } // a new day: the time of the old one no longer holds
     if (PLACE.some((k) => k in p) && !("sl" in p)) p.sl = p.l || p.lat != null ? s : null;
   }
   delete op.src;
