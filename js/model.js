@@ -69,7 +69,8 @@ export function buildModel(db) {
   M.color = (cle) => { const l = M.liste.get(cle) || {}; return l.couleur || (l.type === "annee" ? "#9A7400" : PALETTE[Math.max(0, M.listes.indexOf(l)) % PALETTE.length]); };
 
   // search index (names and other names)
-  M.index = db.especes.map((e) => ({ e, keys: [norm(e.n), ...(e.al || []).map(norm), norm(e.sc)].filter(Boolean) }));
+  M.index = db.especes.map((e) => ({ e, keys: [norm(e.n), ...(e.al || []).map(norm), norm(e.sc), ...(e.scs || []).map(norm)].filter(Boolean) }));
+  M.keysOf = new Map(M.index.map((x) => [x.e.id, x.keys]));
   M.search = (q, limit = 12) => {
     const k = norm(q); if (!k) return [];
     const words = k.split(" "), max = maxErrors(k);
@@ -89,6 +90,8 @@ export function buildModel(db) {
     return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
   };
   // the same matching for a whole text (journal, list filters)
+  // a species by any of its names: French name, other names, Latin names
+  M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));
   M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };
 
   // Photo France ticks by calendar day, all years together

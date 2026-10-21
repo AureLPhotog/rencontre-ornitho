@@ -204,3 +204,11 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .tdnav a b{font-family:var(--f-data);font-size:12px;color:var(--kf)}
 .tdnav a.zero{opacity:.5}.tdnav a.on{background:var(--kf);border-color:var(--kf);color:#fff}.tdnav a.on b{color:#fff}
 .screen > section[id^="td-"]{scroll-margin-top:110px}
+/* home: search a bird */
+.hsearch{margin:0 0 14px}
+.hres{list-style:none;margin:8px 0 0;padding:0;background:var(--leaf);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.hres li{display:flex;flex-direction:column;gap:4px;padding:10px 14px;border-bottom:1px solid var(--rule)}
+.hres li:last-child{border-bottom:0}
+.hres a{text-decoration:none;color:var(--ink)}
+.hres a b{font-weight:600}
+.hwhere{display:flex;flex-wrap:wrap;gap:4px}

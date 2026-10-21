@@ -86,6 +86,7 @@ function screenHome() {
   const yr = M.years.slice().reverse();
   view.innerHTML = `<div class="screen keep-scroll">
     <section><h2>Mes listes</h2>
+      <div class="hsearch"><input class="field" type="search" id="hq" placeholder="Chercher un oiseau (nom, autre nom, nom latin)" autocomplete="off" value="${esc(UI.hq || "")}"><ul class="hres" id="hres" hidden></ul></div>
       <div class="ladder">
         ${rung(LIFERS, 0, `<small>${liferAll} en comptant les espèces vues ou entendues à l'étranger</small>`)}
         ${rung(PHOTO_FR, 1)}
@@ -102,6 +103,20 @@ function screenHome() {
     </section>
     <section><h3 class="minor">Year lists</h3><div class="years">${yr.map((y) => { const fr = M.yearList(y, "fr").length, w = M.yearList(y, "monde").length; return `<a href="#/annee/${y}"><span>${y}</span><b>${fr}</b>${w !== fr ? `<small>${w} avec l'étranger</small>` : ""}</a>`; }).join("")}</div></section>
   </div>`;
+  // search a bird across all lists: where it is ticked, with the name that matched
+  const hq = $("#hq"), hres = $("#hres");
+  const where = (sid) => { const m = M.bySp.get(sid); return m ? M.listes.filter((l) => m.has(l.cle) && l.type !== "annee").map((l) => chip(l.cle)).join(" ") : '<span class="cap">jamais cochée</span>'; };
+  const hdraw = () => {
+    const v = hq.value.trim(); saveUI({ hq: v }); const k = norm(v);
+    if (!k) { hres.hidden = true; hres.innerHTML = ""; return; }
+    const found = M.search(v, 25);
+    hres.hidden = false;
+    hres.innerHTML = found.map((e) => {
+      const alt = norm(e.n).includes(k) ? "" : [...(e.al || []), e.sc, ...(e.scs || [])].filter(Boolean).find((a) => M.matches(k, a));
+      return `<li><a href="#/espece/${esc(e.id)}"><b>${esc(e.n)}</b>${qTag(e.q)}${alt ? ` <small class="cap">(${esc(alt)})</small>` : ""}</a><span class="hwhere">${where(e.id)}</span></li>`;
+    }).join("") || `<li class="cap">Aucun oiseau trouvé pour « ${esc(v)} ».</li>`;
+  };
+  hq.addEventListener("input", hdraw); hdraw();
 }
 
 // ---------- one list ----------
@@ -121,7 +136,7 @@ function screenList(cle) {
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
   // the species page follows this order (and this search) with its arrows and swipes
-  const filter = () => { const k = norm(q.value); rows.forEach((li) => { li.hidden = !!k && !M.matches(k, li.textContent); }); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: sorted.filter((_, i) => !rows[i].hidden).map((t) => t.e) } }); };
+  const filter = () => { const k = norm(q.value); rows.forEach((li, i) => { li.hidden = !!k && !M.matches(k, li.textContent) && !M.matchesSp(k, sorted[i].e); }); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: sorted.filter((_, i) => !rows[i].hidden).map((t) => t.e) } }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
 }
@@ -235,7 +250,7 @@ function screenJournal() {
   const draw = () => {
     const k = norm(F.q);
     const res = M.ticks.filter((t) => (!F.cle || t.cle === F.cle) && (!F.year || (F.year === "none" ? !t.d : yearOf(t.d) === +F.year)) && (!F.miss || (F.miss === "coords" ? t.lat == null : F.miss === "date" ? !t.d : !t.l))
-      && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matches(k, M.name(t.e)) || M.matches(k, (M.esp.get(t.e) || {}).sc || "")))
+      && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matchesSp(k, t.e)))
       .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
     $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b>${qTag((M.esp.get(t.e) || {}).q)} ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
