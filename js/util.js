@@ -29,7 +29,7 @@ export const QUALITES = [
   { v: "Photo à refaire", court: "À refaire", c: "#C2410C" },
 ];
 export const qualite = (q) => QUALITES.find((x) => x.v === q) || null; // « à cocher » is a status, not a quality
-export const qTag = (q) => { const x = qualite(q); return x ? `<span class="qtag" style="--c:${x.c}" title="${x.v}">${x.court}</span>` : ""; };
+export const qTag = (q) => { const x = qualite(q); return x ? `<span class="qtag" style="--c:${x.c}" title="${x.v}"><span aria-hidden="true">📷 </span>${x.court}</span>` : ""; };
 export const fmtShort = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 export const isFrance = (p) => !p || norm(p) === "france";
 
