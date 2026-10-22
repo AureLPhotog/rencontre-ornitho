@@ -164,7 +164,7 @@ function screenList(cle) {
   const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
-    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
+    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small>${MAP_LISTS.includes(cle) ? ` <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a>` : ""}</p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle })).join("")}</ul>
@@ -177,11 +177,13 @@ function screenList(cle) {
 }
 
 // ---------- one list on a map ----------
+// the map of a whole list, with the photos: the photo lists (Lifers, Photo France) and the small trips (Suisse, Espagne)
+const MAP_LISTS = [LIFERS, PHOTO_FR, "suisse", "espagne"];
 function screenListMap(cle) {
-  const l = M.liste.get(cle); if (!l) return go("#/");
+  const l = M.liste.get(cle); if (!l || !MAP_LISTS.includes(cle)) return go(l ? `#/liste/${cle}` : "#/");
   const items = M.speciesOf(cle), placed = items.filter((t) => t.lat != null), color = M.color(cle);
   view.innerHTML = `<div class="screen screen-map"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Carte · ${esc(l.nom)}</h1>
-    <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. Touche un point pour voir l'espèce et sa photo ; les flèches passent de la photo de la coche à la première ou à la meilleure.</p></header>
+    <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. Touche un point pour voir l'espèce et la photo de cette coche.</p></header>
     <div class="bigmap" id="lm"></div></div>`;
   // ticks on the very same point (same GPS fix, same named place) share one marker: its popup goes from one species to the next
   const groups = new Map();
