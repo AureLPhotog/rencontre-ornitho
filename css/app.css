@@ -238,3 +238,11 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .bigmap{height:calc(100vh - 230px);min-height:340px;border-radius:12px;overflow:hidden;border:1px solid var(--rule);z-index:0}
 .pop{display:flex;flex-direction:column;gap:4px;font-family:var(--f-body)}.pop .pop-n{font-size:14px}.pop small{color:#5D7068;font-size:12px}
 .pop .phs{margin:4px 0}.pop .ph{border-radius:6px}
+.mk-n span{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 12px/1 var(--f-body);box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.pop-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.pop-b{width:32px;height:32px;border-radius:50%;border:1px solid #D5DFD9;background:#fff;font-size:18px;cursor:pointer;flex:none}
+.pop-c{font-size:12px;color:#5D7068;text-align:center}
+.pop-list{list-style:none;margin:2px 0;padding:0;display:flex;flex-wrap:wrap;gap:4px;max-height:96px;overflow:auto}
+.pop-list button{border:1px solid #D5DFD9;background:#fff;border-radius:12px;padding:2px 8px;font-size:11px;cursor:pointer;color:#16302A}
+.pop-list button.on{background:#16302A;color:#fff;border-color:#16302A}
+.pop-card{display:flex;flex-direction:column;gap:4px}

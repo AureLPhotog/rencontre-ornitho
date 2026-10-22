@@ -183,11 +183,28 @@ function screenListMap(cle) {
   view.innerHTML = `<div class="screen screen-map"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Carte · ${esc(l.nom)}</h1>
     <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. Touche un point pour voir l'espèce et sa photo ; les flèches passent de la photo de la coche à la première ou à la meilleure.</p></header>
     <div class="bigmap" id="lm"></div></div>`;
-  const pts = placed.map((t) => ({ lat: t.lat, lon: t.lon, color: M.photosFor(t).length ? color : "#9AA5A0", html: () => {
-    const rk = M.rankOf(t);
-    return `<div class="pop"><b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(M.photosFor(t), M.name(t.e)) || '<p class="cap">Pas encore de photo dans l\'appli.</p>'}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a></div>`;
-  } }));
-  listMap($("#lm"), pts, (el, popup) => { wirePhotos(el); $$("img[data-ph]", el).forEach((im) => im.addEventListener("load", () => popup.update(), { once: true })); });
+  // ticks on the very same point (same GPS fix, same named place) share one marker: its popup goes from one species to the next
+  const groups = new Map();
+  placed.forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(M.photosFor(t), M.name(t.e)) || '<p class="cap">Pas encore de photo dans l\'appli.</p>'}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
+  const pts = [...groups.values()].map((ts) => {
+    ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || (a.d || "").localeCompare(b.d || ""));
+    return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: ts.some((t) => M.photosFor(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
+      : `<div class="pop pop-g" data-i="0"><div class="pop-head"><button type="button" class="pop-b" data-d="-1" aria-label="Espèce précédente">‹</button><span class="pop-c">1 / ${ts.length} ${plural(ts.length, "espèce")} à ce point</span><button type="button" class="pop-b" data-d="1" aria-label="Espèce suivante">›</button></div>
+        <ul class="pop-list">${ts.map((t, i) => `<li><button type="button" data-k="${i}" class="${i ? "" : "on"}">${M.rankOf(t) ? M.rankOf(t) + " · " : ""}${esc(M.name(t.e))}</button></li>`).join("")}</ul>
+        ${ts.map((t, i) => `<div class="pop-card"${i ? " hidden" : ""}>${card(t)}</div>`).join("")}</div>` };
+  });
+  listMap($("#lm"), pts, (el, popup) => {
+    const fit = (root) => $$("img[data-ph]", root).forEach((im) => im.addEventListener("load", () => popup.update(), { once: true }));
+    const g = $(".pop-g:not([data-w])", el);
+    if (g) {
+      g.dataset.w = "1"; const cards = $$(".pop-card", g), keys = $$("[data-k]", g);
+      const show = (i) => { i = (i + cards.length) % cards.length; g.dataset.i = i; cards.forEach((c, k) => { c.hidden = k !== i; }); keys.forEach((b, k) => b.classList.toggle("on", k === i)); $(".pop-c", g).textContent = `${i + 1} / ${cards.length} espèces à ce point`; wirePhotos(cards[i]); fit(cards[i]); popup.update(); };
+      $$(".pop-b", g).forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); show(+g.dataset.i + +b.dataset.d); }));
+      keys.forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); show(+b.dataset.k); }));
+      wirePhotos(cards[0]); fit(cards[0]);
+    } else { wirePhotos(el); fit(el); }
+  });
 }
 
 // ---------- year list ----------

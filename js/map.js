@@ -54,7 +54,10 @@ export function listMap(el, points, onOpen) {
   const map = L().map(el, { zoomControl: true });
   const base = LAYERS.plan().addTo(map);
   L().control.layers({ "Plan": base, "Photo aérienne (France)": LAYERS.ign(), "Satellite (monde)": LAYERS.monde() }, null, { position: "topright" }).addTo(map);
-  const ms = points.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 7, color: p.stroke || "#fff", fillColor: p.color || "#0A7895", weight: 2, fillOpacity: 0.9 })
+  // a point holding several ticks shows how many
+  const ms = points.map((p) => (p.count > 1
+    ? L().marker([p.lat, p.lon], { icon: L().divIcon({ className: "mk-n", html: `<span style="background:${p.color || "#0A7895"}">${p.count}</span>`, iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -12] }) })
+    : L().circleMarker([p.lat, p.lon], { radius: p.r || 7, color: p.stroke || "#fff", fillColor: p.color || "#0A7895", weight: 2, fillOpacity: 0.9 }))
     // the popup content is built once and kept (Leaflet calls this again when the popup is resized)
     .bindPopup(() => { if (!p._el) { p._el = document.createElement("div"); p._el.innerHTML = p.html(); } return p._el; }, { maxWidth: 300, minWidth: 240, autoPanPadding: [20, 60] }));
   const g = L().featureGroup(ms).addTo(map);
