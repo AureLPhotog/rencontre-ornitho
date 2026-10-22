@@ -164,7 +164,7 @@ function screenList(cle) {
   const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
-    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small>${MAP_LISTS.includes(cle) ? ` <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a>` : ""}</p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
+    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle })).join("")}</ul>
@@ -177,21 +177,22 @@ function screenList(cle) {
 }
 
 // ---------- one list on a map ----------
-// the map of a whole list, with the photos: the photo lists (Lifers, Photo France) and the small trips (Suisse, Espagne)
-const MAP_LISTS = [LIFERS, PHOTO_FR, "suisse", "espagne"];
+// every list has its map; the photos show only on the Lifers, Photo France and the country lists (Guyane, Suisse, Espagne…)
+const withPhotos = (l) => l.cle === LIFERS || l.cle === PHOTO_FR || l.type === "pays";
 function screenListMap(cle) {
-  const l = M.liste.get(cle); if (!l || !MAP_LISTS.includes(cle)) return go(l ? `#/liste/${cle}` : "#/");
+  const l = M.liste.get(cle); if (!l) return go("#/");
+  const ph = withPhotos(l), photosOf = (t) => (ph ? M.photosFor(t) : []);
   const items = M.speciesOf(cle), placed = items.filter((t) => t.lat != null), color = M.color(cle);
   view.innerHTML = `<div class="screen screen-map"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Carte · ${esc(l.nom)}</h1>
-    <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. Touche un point pour voir l'espèce et la photo de cette coche.</p></header>
+    <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. ${ph ? "Touche un point pour voir l'espèce et la photo de cette coche." : "Touche un point pour voir l'espèce."}</p></header>
     <div class="bigmap" id="lm"></div></div>`;
   // ticks on the very same point (same GPS fix, same named place) share one marker: its popup goes from one species to the next
   const groups = new Map();
   placed.forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
-  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(M.photosFor(t), M.name(t.e)) || '<p class="cap">Pas encore de photo dans l\'appli.</p>'}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
+  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${ph ? phSlider(photosOf(t), M.name(t.e)) || '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : ""}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
   const pts = [...groups.values()].map((ts) => {
     ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || (a.d || "").localeCompare(b.d || ""));
-    return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: ts.some((t) => M.photosFor(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
+    return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: !ph || ts.some((t) => photosOf(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
       : `<div class="pop pop-g" data-i="0"><div class="pop-head"><button type="button" class="pop-b" data-d="-1" aria-label="Espèce précédente">‹</button><span class="pop-c">1 / ${ts.length} ${plural(ts.length, "espèce")} à ce point</span><button type="button" class="pop-b" data-d="1" aria-label="Espèce suivante">›</button></div>
         <ul class="pop-list">${ts.map((t, i) => `<li><button type="button" data-k="${i}" class="${i ? "" : "on"}">${M.rankOf(t) ? M.rankOf(t) + " · " : ""}${esc(M.name(t.e))}</button></li>`).join("")}</ul>
         ${ts.map((t, i) => `<div class="pop-card"${i ? " hidden" : ""}>${card(t)}</div>`).join("")}</div>` };
