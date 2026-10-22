@@ -107,14 +107,9 @@ export function buildModel(db) {
   // the pictures themselves (small copies in the data repo): first photos [date, time, image, original file, zone], best photo
   M.firstPhotos = (sid) => (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone }));
   M.bestPhoto = (sid) => { const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
-  // what to show for a tick: only the photo of that very day (never a photo of another day or place); then the best one
-  M.photosFor = (t) => {
-    const same = M.firstPhotos(t.e).find((x) => x.d === t.d), out = [];
-    if (!same) return out;
-    out.push({ ...same, label: "Photo de la coche" });
-    const b = M.bestPhoto(t.e); if (b && !out.some((x) => x.img === b.img)) out.push({ ...b, label: "Meilleure photo" });
-    return out;
-  };
+  // what to show for a tick (map, to-do): only the photo of that very day, never one of another day or place,
+  // and never the best photo (that one belongs to the species page)
+  M.photosFor = (t) => { const same = M.firstPhotos(t.e).find((x) => x.d === t.d); return same ? [{ ...same, label: "Photo de la coche" }] : []; };
   // a species by any of its names: French name, other names, Latin names
   M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));
   M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };
