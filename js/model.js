@@ -187,9 +187,11 @@ export function buildModel(db) {
       const days = M.photoDays(t.e); if (!days.length) continue;
       const first = t.cle === PHOTO_FR ? days[0] : days.find((x) => x[0].slice(0, 4) === t.d.slice(0, 4));
       if (!first || first[0] >= t.d) continue;
-      const k = t.e + "|" + t.d; if (!pg.has(k)) pg.set(k, { e: t.e, d: t.d, photo: first, ticks: [] });
+      const k = t.e + "|" + t.d + "|" + t.cle; if (!pg.has(k)) pg.set(k, { e: t.e, d: t.d, cle: t.cle, photo: first, ticks: [] });
     }
-    for (const g of pg.values()) { const base = M.ticks.find((x) => x.e === g.e && x.d === g.d && x.cle === PHOTO_FR) || M.ticks.find((x) => x.e === g.e && x.d === g.d); g.ticks = M.ticks.filter((x) => x.cle !== VU && M.sameObs(base, x)); }
+    // what moves with it: for Photo France, the lifer of the same day (same photo); a year list moves alone,
+    // since the first photo of the year may have been taken elsewhere (zone lists follow their own check)
+    for (const g of pg.values()) { const base = M.ticks.find((x) => x.e === g.e && x.d === g.d && x.cle === g.cle); g.ticks = g.cle === PHOTO_FR ? M.ticks.filter((x) => (x.cle === PHOTO_FR || x.cle === LIFERS) && M.sameObs(base, x)) : [base]; }
     out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
     // a zone list (region, department, commune) starts with the first photo taken inside it: the earliest dated
     // photo tick of any list (Photo France, Lifers, year lists, sub-zones, garden…) whose place is in the zone
