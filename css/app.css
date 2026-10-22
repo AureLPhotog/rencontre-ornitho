@@ -216,3 +216,25 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .tdbar .tdlist{display:flex;flex-direction:row;align-items:center;gap:10px;margin:0;font-size:14px;color:var(--muted)}
 .tdbar .tdlist select{flex:1;max-width:320px;margin:0;padding-top:8px;padding-bottom:8px}
 .mapq{position:relative;margin:0 0 6px}.mapq .sug{z-index:1100}
+/* photos */
+.btn-map{min-height:32px;padding:4px 10px;font-size:13px;margin-left:8px;vertical-align:middle}
+.ph{display:block;width:100%;height:auto;aspect-ratio:3/2;object-fit:contain;background:var(--rule);border-radius:8px;cursor:zoom-in}
+.ph[src]{aspect-ratio:auto;background:none}
+.ph-none{visibility:hidden;height:0}
+.phs{position:relative;margin:4px 0 8px}
+.phs-f{margin:0}.phs-f figcaption{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.35}.phs-f figcaption b{color:var(--ink)}
+.phs-f figcaption small{display:block;font-size:11px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phs-b{position:absolute;top:calc(50% - 30px);width:36px;height:36px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.phs-b.prev{left:6px}.phs-b.next{right:6px}
+.phs-n{position:absolute;top:6px;right:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:1px 7px;border-radius:9px}
+.sp-photos{max-width:640px}
+.todo li.has-ph{display:grid;grid-template-columns:88px 1fr;gap:4px 10px;align-items:start}
+.todo li.has-ph>.row{grid-column:2}
+.td-ph .ph{width:88px;aspect-ratio:3/2;object-fit:cover}
+.lightbox{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+.lightbox button{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:26px;cursor:pointer}
+.screen-map .phead{margin-bottom:8px}
+.bigmap{height:calc(100vh - 230px);min-height:340px;border-radius:12px;overflow:hidden;border:1px solid var(--rule);z-index:0}
+.pop{display:flex;flex-direction:column;gap:4px;font-family:var(--f-body)}.pop .pop-n{font-size:14px}.pop small{color:#5D7068;font-size:12px}
+.pop .phs{margin:4px 0}.pop .ph{border-radius:6px}

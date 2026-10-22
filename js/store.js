@@ -19,7 +19,7 @@ const cleOfPath = (path) => (path.match(/^data\/coches\/([a-z0-9-]+)\.json$/) ||
 const sourcePath = (k) => `data/sources/${k}.json`;
 const srcOfPath = (path) => (path.match(/^data\/sources\/([a-z0-9-]+)\.json$/) || [])[1];
 
-function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {}, photos: {} }; }
+function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {}, photos: {}, vign: {} }; }
 function dbFromFiles(files) {
   const db = emptyDb();
   for (const [path, f] of Object.entries(files)) {
@@ -30,6 +30,7 @@ function dbFromFiles(files) {
     else if (path === P.taches) db.taches = j.taches || [];
     else if (srcOfPath(path)) db.sources[srcOfPath(path)] = j;
     else if (path === "data/ref/photos.json") db.photos = j.especes || {}; // the days you have photos of each species (read only)
+    else if (path === "data/ref/vignettes.json") db.vign = j.especes || {}; // species -> { p: first photos [date, time, image, original file, zone], b: best }
     else { const cle = cleOfPath(path); if (cle) db.coches[cle] = j.coches || []; }
   }
   db.listes.forEach((l) => { if (!db.coches[l.cle]) db.coches[l.cle] = []; });
@@ -84,6 +85,7 @@ export class Store {
     const c = store(CACHE_KEY) || {};
     this.files = c.files || {};          // path -> { sha, text } as last read from GitHub
     this.commit = c.commit || null;      // commit those files come from
+    this.images = c.images || {};        // image path -> blob sha (the photos are fetched only when shown)
     this.pending = store(PENDING_KEY) || [];
     this.listeners = new Set(); this.state = "idle"; this.error = null; this.flushing = null;
     this._rebuild();
@@ -95,7 +97,7 @@ export class Store {
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   _emit() { this.listeners.forEach((fn) => fn(this)); }
   _status(state, error = null) { this.state = state; this.error = error; this._emit(); }
-  _save() { store(CACHE_KEY, { files: this.files, commit: this.commit }); store(PENDING_KEY, this.pending); }
+  _save() { store(CACHE_KEY, { files: this.files, commit: this.commit, images: this.images }); store(PENDING_KEY, this.pending); }
   _rebuild() { const db = dbFromFiles(this.files); this.pending.forEach((op) => applyOp(db, op)); this.db = db; }
   setConfig(cfg) { this.cfg = { ...this.cfg, ...cfg }; store(CFG_KEY, this.cfg); }
 
@@ -122,8 +124,9 @@ export class Store {
   async _head() {
     const c = await this.gh("GET", this.repoPath(`/commits/${encodeURIComponent(this.cfg.branch)}`));
     const tree = await this.gh("GET", this.repoPath(`/git/trees/${c.commit.tree.sha}?recursive=1`));
-    const blobs = {}; (tree.tree || []).forEach((e) => { if (e.type === "blob" && /^data\/.+\.json$/.test(e.path)) blobs[e.path] = e.sha; });
-    return { commit: c.sha, tree: c.commit.tree.sha, blobs };
+    const blobs = {}, images = {};
+    (tree.tree || []).forEach((e) => { if (e.type !== "blob") return; if (/^data\/.+\.json$/.test(e.path)) blobs[e.path] = e.sha; else if (/^data\/photos\/.+\.jpe?g$/i.test(e.path)) images[e.path] = e.sha; });
+    return { commit: c.sha, tree: c.commit.tree.sha, blobs, images };
   }
   async _blob(sha) { const b = await this.gh("GET", this.repoPath(`/git/blobs/${sha}`)); return b64decode(b.content); }
   // bring the server copy up to date with the files of `head`
@@ -142,6 +145,7 @@ export class Store {
         for (let attempt = 0; attempt < 4; attempt++) {
           const head = await this._head();
           if (head.commit !== this.commit) await this._pull(head);
+          this.images = head.images || {};
           if (!this.pending.length) { this._rebuild(); this._save(); this._status("ok"); return; }
           const ok = await this._push(head);
           if (ok) { this._rebuild(); this._save(); this._status("ok"); return; }
@@ -182,6 +186,27 @@ export class Store {
     ops = (Array.isArray(ops) ? ops : [ops]).map((op) => stampSource({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
     this.pending.push(...ops); ops.forEach((op) => applyOp(this.db, op));
     this._save(); this._emit(); this.sync();
+  }
+  // a photo of the private repository, as an object URL: read once from GitHub, then kept in the browser
+  async imageUrl(path) {
+    const sha = this.images[path]; if (!sha) return null;
+    this._img = this._img || new Map();
+    if (this._img.has(sha)) return this._img.get(sha);
+    const p = (async () => {
+      const key = `https://ro-photos.invalid/${sha}.jpg`;
+      let cache = null; try { cache = await caches.open("ro-photos-v1"); } catch (_) {}
+      let blob = cache ? await cache.match(key).then((r) => (r ? r.blob() : null)).catch(() => null) : null;
+      if (!blob) {
+        const b = await this.gh("GET", this.repoPath(`/git/blobs/${sha}`));
+        const bin = atob((b.content || "").replace(/\s/g, "")), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        blob = new Blob([bytes], { type: "image/jpeg" });
+        if (cache) cache.put(key, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })).catch(() => {});
+      }
+      return URL.createObjectURL(blob);
+    })();
+    this._img.set(sha, p); p.catch(() => this._img.delete(sha));
+    return p;
   }
   resetCache() { this.files = {}; this.commit = null; this._rebuild(); this._save(); }
 }

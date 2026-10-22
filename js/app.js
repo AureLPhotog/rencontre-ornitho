@@ -3,7 +3,7 @@ import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yea
 import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
-import { mapView } from "./map.js";
+import { mapView, listMap } from "./map.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
@@ -37,14 +37,14 @@ const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
   [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
   [/^#\/coche\/([\w-]+)\/([\w-]+)$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
-  [/^#\/a-faire$/, screenTodo], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
+  [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
 let current = "";
 export function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
 function route(soft) {
   const h = location.hash || "#/";
   if (!S.ready && !/^#\/reglages/.test(h)) { location.replace("#/reglages"); return; }
-  if (soft && (/^#\/(ajout|coche|listes|import)/.test(h))) return; // never redraw a form while it is open
+  if (soft && (/^#\/(ajout|coche|listes|import|carte)/.test(h))) return; // never redraw a form while it is open
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
@@ -68,6 +68,41 @@ const L = (cle) => M.liste.get(cle) || { nom: cle };
 const numOf = (t) => t.n ? `n°${t.n}` : "";
 const cstyle = (cle) => `style="--c:${M.color(cle)}"`;
 const chip = (cle) => `<span class="chip-s" ${cstyle(cle)}>${esc(L(cle).nom)}</span>`;
+// ---------- photos ----------
+// a photo of the data repository: the <img> gets its picture when it comes into view
+const phImg = (img, alt = "") => `<img class="ph" data-ph="${esc(img)}" data-alt="${esc(alt)}" alt="">`;
+let phObs = null;
+function hydrate(root) {
+  const imgs = $$("img[data-ph]:not([data-done])", root); if (!imgs.length) return;
+  const load = (im) => { im.dataset.done = "1"; S.imageUrl(im.dataset.ph).then((u) => { if (u) { im.alt = im.dataset.alt || ""; im.src = u; } else im.classList.add("ph-none"); }).catch(() => im.classList.add("ph-none")); };
+  if (!("IntersectionObserver" in window)) { imgs.forEach(load); return; }
+  phObs = phObs || new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { phObs.unobserve(e.target); load(e.target); } }), { rootMargin: "300px" });
+  imgs.forEach((im) => phObs.observe(im));
+}
+// any screen that draws photos gets them loaded, however it was drawn
+new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtree: true });
+// several photos of one species (photo of the tick, first photo, best photo): arrows to go from one to the other
+function phSlider(photos, name) {
+  if (!photos.length) return "";
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img, name)}<figcaption><b>${esc(p.label)}</b> · ${esc(fmtShort(p.d))}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+}
+function wirePhotos(root) {
+  $$(".phs:not([data-w])", root).forEach((box) => {
+    box.dataset.w = "1"; const fs = $$(".phs-f", box);
+    const show = (d) => { const i = (+box.dataset.i + d + fs.length) % fs.length; box.dataset.i = i; fs.forEach((f, k) => { f.hidden = k !== i; }); const n = $(".phs-n", box); if (n) n.textContent = `${i + 1} / ${fs.length}`; hydrate(box); };
+    $$(".phs-b", box).forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); show(b.classList.contains("prev") ? -1 : 1); }));
+  });
+  hydrate(root);
+}
+// a tap on a photo shows it big
+document.addEventListener("click", (ev) => {
+  const im = ev.target.closest("img.ph[src]"); if (!im) return;
+  const box = document.createElement("div"); box.className = "lightbox"; box.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}"><button type="button" aria-label="Fermer">×</button>`;
+  const close = () => { box.remove(); document.removeEventListener("keydown", esc_); };
+  const esc_ = (e) => { if (e.key === "Escape") close(); };
+  box.addEventListener("click", close); document.addEventListener("keydown", esc_); document.body.appendChild(box);
+});
+
 function row(t, { rank, showList = false, from } = {}) {
   const place = t.l && t.l !== t.p ? t.l : "";
   return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${nameLink(t.e, from)}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
@@ -129,7 +164,7 @@ function screenList(cle) {
   const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
-    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
+    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle })).join("")}</ul>
@@ -139,6 +174,20 @@ function screenList(cle) {
   const filter = () => { const k = norm(q.value); rows.forEach((li, i) => { li.hidden = !!k && !M.matches(k, li.textContent) && !M.matchesSp(k, sorted[i].e); }); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: sorted.filter((_, i) => !rows[i].hidden).map((t) => t.e) } }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
+}
+
+// ---------- one list on a map ----------
+function screenListMap(cle) {
+  const l = M.liste.get(cle); if (!l) return go("#/");
+  const items = M.speciesOf(cle), placed = items.filter((t) => t.lat != null), color = M.color(cle);
+  view.innerHTML = `<div class="screen screen-map"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Carte · ${esc(l.nom)}</h1>
+    <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. Touche un point pour voir l'espèce et sa photo ; les flèches passent de la photo de la coche à la première ou à la meilleure.</p></header>
+    <div class="bigmap" id="lm"></div></div>`;
+  const pts = placed.map((t) => ({ lat: t.lat, lon: t.lon, color: M.photosFor(t).length ? color : "#9AA5A0", html: () => {
+    const rk = M.rankOf(t);
+    return `<div class="pop"><b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(M.photosFor(t), M.name(t.e)) || '<p class="cap">Pas encore de photo dans l\'appli.</p>'}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a></div>`;
+  } }));
+  listMap($("#lm"), pts, (el, popup) => { wirePhotos(el); $$("img[data-ph]", el).forEach((im) => im.addEventListener("load", () => popup.update(), { once: true })); });
 }
 
 // ---------- year list ----------
@@ -300,6 +349,7 @@ function screenSpecies(sid, q) {
   });
   view.innerHTML = `<div class="screen">
     ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Qualité photo</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}</div></header>
+    ${(() => { const ph = [...M.firstPhotos(sid).map((p, i, a) => ({ ...p, label: a.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo" })), ...(M.bestPhoto(sid) ? [{ ...M.bestPhoto(sid), label: "Meilleure photo" }] : [])]; return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n)}</section>` : ""; })()}
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
@@ -311,6 +361,7 @@ function screenSpecies(sid, q) {
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
+  wirePhotos(view);
   // moving between species replaces the page in the history, so « Retour » goes back to the list
   const move = (id) => { if (id) { location.replace(to(id)); scrollTo(0, 0); } };
   $$("[data-nav]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); move(a.dataset.nav === "prev" ? prev : next); }));
@@ -401,7 +452,8 @@ function taskView(t) {
   } else if (t.kind === "cocheurs") {
     body = `${esc(t.quoi)}<small>${tickLine(tk)}</small>`; btns = act("ok", "Fait dans cocheurs");
   } else { body = `${esc(t.quoi)}${t.det ? `<small>${esc(t.det)}</small>` : ""}`; btns = act("ok", "Fait"); }
-  return { done, html: `<li><span>${who}${who ? "<br>" : ""}${body}</span><span class="row">${btns}</span></li>` };
+  const ph = tk && !done ? M.photosFor(tk).find((p) => p.d === tk.d) : null; // the photo of that tick, to recognise the place
+  return { done, html: `<li${ph ? ' class="has-ph"' : ""}>${ph ? `<span class="td-ph">${phImg(ph.img, M.name(tk.e))}</span>` : ""}<span>${who}${who ? "<br>" : ""}${body}</span><span class="row">${btns}</span></li>` };
 }
 function taskAct(id, a) {
   const t = M.db.taches.find((x) => x.id === id); if (!t) return;

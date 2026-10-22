@@ -104,6 +104,17 @@ export function buildModel(db) {
   // the days you have photos of a species (from your photo folders): [date, time of the first photo, file]
   M.photoDays = (sid) => ((db.photos || {})[sid] || {}).jours || [];
   M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
+  // the pictures themselves (small copies in the data repo): first photos [date, time, image, original file, zone], best photo
+  M.firstPhotos = (sid) => (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone }));
+  M.bestPhoto = (sid) => { const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  // what to show for a tick: the photo of that day if there is one, else the first photo of the species; then the best one
+  M.photosFor = (t) => {
+    const f = M.firstPhotos(t.e), same = f.find((x) => x.d === t.d), out = [];
+    if (same) out.push({ ...same, label: "Photo de la coche" });
+    else if (f.length) out.push({ ...f[0], label: "Première photo" });
+    const b = M.bestPhoto(t.e); if (b && !out.some((x) => x.img === b.img)) out.push({ ...b, label: "Meilleure photo" });
+    return out;
+  };
   // a species by any of its names: French name, other names, Latin names
   M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));
   M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };

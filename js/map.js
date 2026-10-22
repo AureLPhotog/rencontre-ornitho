@@ -48,5 +48,21 @@ export function mapView(el, points) {
   return map;
 }
 
+// every tick of a list on one big map: a popup is built only when its point is opened
+export function listMap(el, points, onOpen) {
+  if (!L()) { el.innerHTML = '<p class="cap">La carte n\'a pas pu se charger (pas de réseau ?).</p>'; return null; }
+  const map = L().map(el, { zoomControl: true });
+  const base = LAYERS.plan().addTo(map);
+  L().control.layers({ "Plan": base, "Photo aérienne (France)": LAYERS.ign(), "Satellite (monde)": LAYERS.monde() }, null, { position: "topright" }).addTo(map);
+  const ms = points.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 7, color: p.stroke || "#fff", fillColor: p.color || "#0A7895", weight: 2, fillOpacity: 0.9 })
+    // the popup content is built once and kept (Leaflet calls this again when the popup is resized)
+    .bindPopup(() => { if (!p._el) { p._el = document.createElement("div"); p._el.innerHTML = p.html(); } return p._el; }, { maxWidth: 300, minWidth: 240, autoPanPadding: [20, 60] }));
+  const g = L().featureGroup(ms).addTo(map);
+  if (points.length) map.fitBounds(g.getBounds().pad(0.1), { maxZoom: 13 }); else map.setView(LYON, 6);
+  map.on("popupopen", (e) => onOpen && onOpen(e.popup.getElement(), e.popup));
+  setTimeout(() => map.invalidateSize(), 60);
+  return map;
+}
+
 // the French territory a point falls in, roughly: used only to pre-select Ouessant
 export const isOuessant = (lat, lon) => lat > 48.40 && lat < 48.50 && lon > -5.17 && lon < -5.00;
