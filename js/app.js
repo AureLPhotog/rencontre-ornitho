@@ -114,32 +114,38 @@ function row(t, { rank, showList = false, from, toTick = false } = {}) {
 // ---------- home: the lists ----------
 function screenHome() {
   const c = (cle) => M.liste.has(cle) ? M.count(cle) : 0;
-  const rung = (cle, level, extra = "") => M.liste.has(cle) ? `<a class="rung l${level}" href="#/liste/${cle}"><span class="nm">${esc(L(cle).nom)}</span><b>${c(cle)}</b>${extra}</a>` : "";
+  const lastOf = (cle) => { let b = null; for (const t of (M.db.coches[cle] || [])) if (t.d && (!b || t.d > b.d || (t.d === b.d && (t.n || 0) > (b.n || 0)))) b = t; return b; };
+  // one compact row per list: colour, name, the last tick, the count; depth draws the nesting (France ⊃ AURA ⊃ Rhône…)
+  const lrow = (cle, depth = 0, sub) => {
+    if (!M.liste.has(cle)) return "";
+    const lt = lastOf(cle);
+    const note = sub || (lt ? `${esc(M.name(lt.e))} · ${esc(fmtShort(lt.d))}` : "");
+    return `<a class="lrow d${depth}" href="#/liste/${cle}" style="--c:${M.color(cle)}"><i></i><span class="lr-nm">${esc(L(cle).nom)}${note ? `<small>${note}</small>` : ""}</span><b>${c(cle)}</b></a>`;
+  };
   const vu = M.vuOpen();
   const liferAll = new Set([...M.speciesOf(LIFERS).map((t) => t.e), ...vu.ab.map((t) => t.e)]).size;
-  const side = (cles) => `<div class="side">${cles.filter((k) => M.liste.has(k)).map((k) => `<a href="#/liste/${k}">${esc(L(k).nom)} <b>${c(k)}</b></a>`).join("")}</div>`;
   const zones = M.listes.filter((l) => l.type === "zone" || l.type === "lieu").map((l) => l.cle);
   const others = M.listes.filter((l) => !["annee", "vu", "zone", "lieu", "photo"].includes(l.type));
   const guy = M.speciesOf("guyane"), gt = (k) => guy.filter((t) => norm(t.t) === k).length;
-  const yr = M.years.slice().reverse();
-  view.innerHTML = `<div class="screen keep-scroll">
-    <section><h2>Mes listes</h2>
-      <div class="hsearch"><input class="field" type="search" id="hq" placeholder="Chercher un oiseau (nom, autre nom, nom latin)" autocomplete="off" value="${esc(UI.hq || "")}"><ul class="hres" id="hres" hidden></ul></div>
-      <div class="ladder">
-        ${rung(LIFERS, 0, `<small>${liferAll} en comptant les espèces vues ou entendues à l'étranger</small>`)}
-        ${rung(PHOTO_FR, 1)}
-        ${rung("aura", 2)}
-        ${rung("rhone", 3)}
-        ${side(["jardin", "bureau"])}
-      </div>
-      ${side(["ouessant", ...zones.filter((z) => !["aura", "rhone", "jardin", "bureau", "ouessant"].includes(z))])}
+  // this year against the same day of the other years
+  const today = todayIso(), y0 = +today.slice(0, 4), md = today.slice(5);
+  const atDay = (y) => M.yearList(y, "fr").filter((t) => t.d && t.d.slice(5) <= md).length;
+  const ys = M.years.slice();
+  const now = M.yearList(y0, "fr").length, prev = ys.includes(y0 - 1) ? atDay(y0 - 1) : null;
+  view.innerHTML = `<div class="screen keep-scroll home2">
+    <div class="hsearch"><input class="field" type="search" id="hq" placeholder="Chercher un oiseau" autocomplete="off" value="${esc(UI.hq || "")}"><ul class="hres" id="hres" hidden></ul></div>
+    ${ys.includes(y0) ? `<a class="ynow" href="#/annee/${y0}"><span><small>Year list ${y0} · France</small><b>${now}</b> espèces</span>${prev != null ? `<span class="ydiff ${now >= prev ? "up" : "down"}">${now >= prev ? "+" : "−"}${Math.abs(now - prev)}<small>vs ${y0 - 1} à la même date</small></span>` : ""}</a>` : ""}
+    <section class="lgroup"><h3 class="minor">Listes photo</h3>
+      ${lrow(LIFERS, 0, `${liferAll} avec les vues / entendues à l'étranger`)}
+      ${lrow(PHOTO_FR, 1)}${lrow("aura", 2)}${lrow("rhone", 3)}${lrow("jardin", 4)}${lrow("bureau", 4)}
+      ${["ouessant", ...zones.filter((z) => !["aura", "rhone", "jardin", "bureau", "ouessant"].includes(z))].map((z) => lrow(z, 2)).join("")}
     </section>
-    ${others.length ? `<section><h3 class="minor">Voyages</h3>${others.map((l) => `<a class="rung" href="#/liste/${l.cle}"><span class="nm">${esc(l.nom)}</span><b>${c(l.cle)}</b>${l.cle === "guyane" ? `<small>${gt("vu")} vues, ${gt("entendu")} entendues, le reste en photo</small>` : ""}</a>`).join("")}</section>` : ""}
-    <section><h3 class="minor">Vu ou entendu, pas encore photographié</h3>
-      <a class="rung" href="#/liste/vu?f=fr"><span class="nm">En France, pas encore en photo France</span><b>${vu.fr.length}</b></a>
-      <a class="rung" href="#/liste/vu?f=ab"><span class="nm">À l'étranger, jamais photographiées</span><b>${vu.ab.length}</b></a>
-    </section>
-    <section><h3 class="minor">Year lists</h3><div class="years">${yr.map((y) => { const fr = M.yearList(y, "fr").length, w = M.yearList(y, "monde").length; return `<a href="#/annee/${y}"><span>${y}</span><b>${fr}</b>${w !== fr ? `<small>${w} avec l'étranger</small>` : ""}</a>`; }).join("")}</div></section>
+    ${others.length ? `<section class="lgroup"><h3 class="minor">Voyages</h3>${others.map((l) => lrow(l.cle, 0, l.cle === "guyane" ? `${c(l.cle) - gt("vu") - gt("entendu")} en photo · ${gt("vu")} vues · ${gt("entendu")} entendues` : null)).join("")}</section>` : ""}
+    <section class="lgroup tophoto"><h3 class="minor">À photographier</h3><div class="tp">
+      <a href="#/liste/vu?f=fr"><b>${vu.fr.length}</b><span>en France<small>vues / entendues</small></span></a>
+      <a href="#/liste/vu?f=ab"><b>${vu.ab.length}</b><span>à l'étranger<small>jamais en photo</small></span></a>
+    </div></section>
+    <section><h3 class="minor">Year lists</h3><div class="years">${ys.slice().reverse().map((y) => { const fr = M.yearList(y, "fr").length, w = M.yearList(y, "monde").length; return `<a href="#/annee/${y}"><span>${y}</span><b>${fr}</b>${w !== fr ? `<small>${w} avec l'étranger</small>` : ""}</a>`; }).join("")}</div></section>
   </div>`;
   // search a bird across all lists: where it is ticked, with the name that matched
   const hq = $("#hq"), hres = $("#hres");
