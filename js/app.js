@@ -610,7 +610,8 @@ function screenTodo() {
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
-  view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
+  const lastUndo = S.undos[S.undos.length - 1];
+  view.innerHTML = `<div class="screen keep-scroll"><div class="tdhead"><h2>À faire</h2>${lastUndo ? `<button type="button" class="btn undo" id="td-undo" title="Annuler : ${esc(lastUndo.label)}">↶ Annuler<small>${esc(lastUndo.label)}</small></button>` : ""}</div>
     <div class="tdbar"><label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
     <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav></div>
     ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}/modifier">Corriger</a></li>`).join("")}</ul></section>` : ""}
@@ -685,6 +686,7 @@ function screenTodo() {
     S.apply(x.ticks.filter((t) => M.sameYearOk(t, n.d)).map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch, src: n.src })), `Date reprise de ${n.src === "ff" ? "Faune-France" : "eBird"} : ${M.name(x.e)} (${fmtShort(x.d)} → ${fmtShort(n.d)})`); toast("Date et lieu repris dans toutes les listes de cette observation."); }));
   $$("[data-sdkeep]").forEach((b) => b.addEventListener("click", () => { const x = c.srcDate[+b.dataset.sdkeep];
     S.apply(x.ticks.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { vf: x.d } })), `Date confirmée : ${M.name(x.e)} (${fmtShort(x.d)})`); }));
+  const ub = $("#td-undo"); if (ub) ub.addEventListener("click", () => { const u = S.undoLast(); if (u) toast(`Annulé : ${u.label}`); });
   $$("[data-renum]").forEach((b) => b.addEventListener("click", () => { const cle = b.dataset.renum, mv = M.renumber(cle); S.apply(mv.map((m) => ({ kind: "set-tick", cle, id: m.t.id, patch: { n: m.to } })), `${L(cle).nom} : ${mv.length} coches renumérotées par date`); toast("Numéros remis dans l'ordre des dates."); }));
   const aa = $("#align-all"); if (aa) aa.addEventListener("click", () => { S.apply(c.placeMismatch.flatMap(alignOps), `Lieux alignés : ${c.placeMismatch.length} observations`); toast("Lieux alignés."); });
   $$("[data-addyl]").forEach((b) => b.addEventListener("click", () => {

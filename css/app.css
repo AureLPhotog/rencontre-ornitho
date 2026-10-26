@@ -299,3 +299,4 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 :root[data-theme=dark]{--lg-bg:#173A44;--lg-wing:#5CC2DD;--lg-tick:#0E1A17}
 .logo .lg-bg{fill:var(--lg-bg)}.logo .lg-wing{fill:var(--lg-wing)}.logo .lg-tick{stroke:var(--lg-tick)}
 .tkwarn{background:var(--warn-bg);color:var(--warn-fg);border-radius:10px;padding:10px 12px;margin:0;font-size:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.tkwarn small{flex-basis:100%}
+.tdhead{display:flex;justify-content:space-between;align-items:center;gap:10px}.tdhead h2{margin:0}.btn.undo{flex-direction:column;align-items:flex-end;gap:0;max-width:60%;padding:6px 12px;line-height:1.2}.btn.undo small{font-size:11px;color:var(--muted);font-weight:400;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

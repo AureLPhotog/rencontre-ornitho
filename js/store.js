@@ -87,6 +87,7 @@ export class Store {
     this.commit = c.commit || null;      // commit those files come from
     this.images = c.images || {};        // image path -> blob sha (the photos are fetched only when shown)
     this.pending = store(PENDING_KEY) || [];
+    this.undos = store(UNDO_KEY) || [];
     this.listeners = new Set(); this.state = "idle"; this.error = null; this.flushing = null;
     this._rebuild();
     window.addEventListener("online", () => this.sync());
@@ -182,10 +183,20 @@ export class Store {
   }
 
   // record changes locally (they show at once), then send them
-  apply(ops, label) {
+  // each change remembers how to put things back (« Annuler »): the old values of what it changes, newest last
+  apply(ops, label, { undo = false } = {}) {
     ops = (Array.isArray(ops) ? ops : [ops]).map((op) => stampSource({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
-    this.pending.push(...ops); ops.forEach((op) => applyOp(this.db, op));
+    const back = [];
+    ops.forEach((op) => { const inv = inverseOp(this.db, op); if (inv) back.unshift(inv); applyOp(this.db, op); });
+    this.pending.push(...ops);
+    if (!undo && back.length) { this.undos = [...this.undos, { label: label || ops[0].label, at: Date.now(), ops: back }].slice(-30); store(UNDO_KEY, this.undos); }
     this._save(); this._emit(); this.sync();
+  }
+  undoLast() {
+    const u = this.undos[this.undos.length - 1]; if (!u) return null;
+    this.undos = this.undos.slice(0, -1); store(UNDO_KEY, this.undos);
+    this.apply(u.ops, `Annulé : ${u.label}`, { undo: true });
+    return u;
   }
   // a photo of the private repository, as an object URL: read once from GitHub, then kept in the browser
   async imageUrl(path) {
@@ -233,6 +244,20 @@ export class Store {
 // every tick says where its date (sd) and its place (sl) come from: op.src, or a change made in the app
 // (a patch that sets sd or sl itself keeps them)
 const PLACE = ["l", "lat", "lon"];
+const UNDO_KEY = "ro.undo";
+// the operation that puts back what op is about to change (null when there is nothing to put back)
+function inverseOp(db, op) {
+  const prev = (o, patch) => { if (!o || !patch) return null; const p = {}; for (const k of Object.keys(patch)) p[k] = o[k] === undefined ? null : JSON.parse(JSON.stringify(o[k])); return p; };
+  switch (op.kind) {
+    case "set-tick": { const t = (db.coches[op.cle] || []).find((x) => x.id === op.id); const p = prev(t, op.patch); return p && { kind: "set-tick", cle: op.cle, id: op.id, patch: p }; }
+    case "set-espece": { const p = prev(db.especes.find((x) => x.id === op.id), op.patch); return p && { kind: "set-espece", id: op.id, patch: p }; }
+    case "set-liste": { const p = prev(db.listes.find((x) => x.cle === op.cle), op.patch); return p && { kind: "set-liste", cle: op.cle, patch: p }; }
+    case "set-tache": { const p = prev(db.taches.find((x) => x.id === op.id), op.patch); return p && { kind: "set-tache", id: op.id, patch: p }; }
+    case "add-tick": return (db.coches[op.cle] || []).some((t) => t.id === op.tick.id) ? null : { kind: "del-tick", cle: op.cle, id: op.tick.id };
+    case "del-tick": { const t = (db.coches[op.cle] || []).find((x) => x.id === op.id); return t ? { kind: "add-tick", cle: op.cle, tick: JSON.parse(JSON.stringify(t)) } : null; }
+    default: return null; // new lists, species, places, tasks and sources stay (harmless)
+  }
+}
 function stampSource(op) {
   const s = op.src || "appli";
   if (op.kind === "add-tick") {
