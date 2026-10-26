@@ -172,7 +172,9 @@ function screenList(cle) {
   const f = new URLSearchParams(location.hash.split("?")[1] || "").get("f");
   let items = M.speciesOf(cle);
   if (cle === VU && f) { const v = M.vuOpen(); const keep = new Set((f === "fr" ? v.fr : v.ab).map((t) => t.e)); items = items.filter((t) => keep.has(t.e)); }
-  const sort = UI.sort || (l.numerotee ? "n" : "date");
+  // a numbered list is in date order (À faire flags any number out of order), so it sorts by n° or by name; the others by date or name
+  const opts = l.numerotee ? [["n", "N°"], ["nom", "Nom"]] : [["date", "Date"], ["nom", "Nom"]];
+  const sort = UI.sort === "nom" ? "nom" : l.numerotee ? "n" : "date";
   // each sort keeps its own direction (by default: n° and name ascending, date newest first); missing values stay at the end
   const asc = sortAsc(sort), sg = asc ? 1 : -1;
   const sorted = items.slice().sort(sort === "nom" ? (a, b) => sg * M.name(a.e).localeCompare(M.name(b.e), "fr")
@@ -182,7 +184,7 @@ function screenList(cle) {
   view.innerHTML = `<div class="screen keep-scroll">
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
-      <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc)}</div>
+      <div class="seg" role="group" aria-label="Trier">${opts.map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc)}</div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
