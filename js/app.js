@@ -688,6 +688,7 @@ function screenSettings() {
       <div class="row3"><label>Compte<input class="field" id="own" value="${esc(c.owner)}"></label><label>Dépôt<input class="field" id="rep" value="${esc(c.repo)}"></label><label>Branche<input class="field" id="br" value="${esc(c.branch)}"></label></div>
       <div class="row"><button class="btn btn-primary" type="submit">Enregistrer et tester</button></div><p class="msg" id="cmsg"></p>
     </form>
+    <section class="panel"><span class="lab">Thème</span><div class="seg" id="thm"><button class="btn" type="button" data-t="auto">Auto</button><button class="btn" type="button" data-t="light">☀ Clair</button><button class="btn" type="button" data-t="dark">☾ Sombre</button></div></section>
     ${!first ? `<form class="panel" id="flk"><label>Clé API Flickr <small>(pour ajouter une photo par un lien Flickr)</small><input class="field" id="flkey" autocomplete="off" placeholder="32 caractères" value="${esc(flickrKey())}"></label>
       <details><summary>Obtenir la clé (gratuite)</summary><ol class="steps"><li>Ouvre <a href="https://www.flickr.com/services/apps/create/apply/" target="_blank" rel="noopener">flickr.com › App Garden › Create an app</a> et choisis « non-commercial ».</li><li>Nom : « Rencontre Ornitho », une phrase de description, valide.</li><li>Copie la « Key » (pas le « Secret ») et colle-la ci-dessus.</li></ol></details>
       <div class="row"><button class="btn" type="submit">Enregistrer la clé Flickr</button></div><p class="cap">Elle reste sur cet appareil.</p></form>
@@ -702,10 +703,30 @@ function screenSettings() {
     try { await S.testAccess(); msg.className = "msg ok"; msg.textContent = "Clé valide, lecture de la base…"; await S.sync(); if (S.state === "ok") go("#/"); else msg.textContent = S.error || ""; }
     catch (err) { msg.className = "msg bad"; msg.textContent = err.message; }
   });
+  view.querySelectorAll("#thm button").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.t))); paintTheme();
   const sb = $("#sync"); if (sb) sb.addEventListener("click", () => S.sync());
   const fk = $("#flk"); if (fk) fk.addEventListener("submit", (e) => { e.preventDefault(); setFlickrKey($("#flkey").value); toast("Clé Flickr enregistrée."); });
   const rb = $("#reload"); if (rb) rb.addEventListener("click", () => { S.resetCache(); S.sync(); go("#/"); });
 }
+
+// ---------- thème clair / sombre ----------
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+function themePref() { try { const t = localStorage.getItem("ro.theme"); return t === "light" || t === "dark" ? t : "auto"; } catch { return "auto"; } }
+function themeIsDark() { const p = themePref(); return p === "dark" || (p === "auto" && darkMQ.matches); }
+function setTheme(t) {
+  try { if (t === "auto") localStorage.removeItem("ro.theme"); else localStorage.setItem("ro.theme", t); } catch {}
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  paintTheme();
+}
+function paintTheme() {
+  const dark = themeIsDark(), b = $("#theme");
+  if (b) { b.textContent = dark ? "☀" : "☾"; const l = dark ? "Passer au thème clair" : "Passer au thème sombre"; b.title = l; b.setAttribute("aria-label", l); }
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#0E1A17" : "#0A7895";
+  document.querySelectorAll("#thm button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === themePref())));
+}
+$("#theme")?.addEventListener("click", () => setTheme(themeIsDark() ? "light" : "dark"));
+darkMQ.addEventListener?.("change", paintTheme);
+paintTheme();
 
 // ---------- start ----------
 renderStatus(); route();
