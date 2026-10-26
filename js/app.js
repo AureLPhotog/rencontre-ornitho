@@ -199,12 +199,14 @@ function screenTick(cle, id) {
       ${!isFrance(t.p) ? `<li><b>Pays</b> ${esc(t.p)}</li>` : ""}${t.t ? `<li><b>Détail</b> ${esc(t.t)}</li>` : ""}
       ${twins.length ? `<li><b>Même observation</b> ${twins.map((x) => `<a class="chip-s" ${cstyle(x.cle)} href="#/coche/${x.cle}/${x.id}">${esc(L(x.cle).nom)}${M.rankOf(x) ? " n°" + M.rankOf(x) : ""}</a>`).join(" ")}</li>` : ""}</ul>
     ${t.lat != null ? '<div class="minimap" id="tkm"></div>' : ""}
+    ${t.nph ? `<p class="cap">Marquée « pas de photo de cette coche ». <button type="button" class="linkish" id="tk-unnph">Annuler</button></p>` : ""}
     <div class="row"><a class="btn" href="#/coche/${cle}/${id}/modifier">Modifier la coche</a></div>
     <div id="tk-ph"></div>
   </div>`;
   if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
   photoBox($("#tk-ph"), { kind: "tick", cle, tick: t }, phSlider);
   wirePhotos(view);
+  const un = $("#tk-unnph"); if (un) un.addEventListener("click", () => { S.apply([t, ...twins].filter((x) => x.nph).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { nph: null } })), `Photo à chercher : ${e.n}`); un.parentElement.remove(); toast("Remise dans « Coches sans photo »."); });
   // previous / next tick of the list it was opened from (arrows, swipe, keyboard)
   const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
   if (at < 0) return;
@@ -570,6 +572,16 @@ function screenTodo() {
   }
   c.noPlace = [...ng.values()].filter(anyOn).map((ts) => ({ ts, e: ts[0].e, d: ts[0].d, gps: ts.some((t) => t.lat == null), name: ts.some((t) => !t.l), main: (sel && ts.find((t) => t.cle === sel)) || ts[0] }))
     .sort((a, b) => (b.d || "").localeCompare(a.d || "") || M.name(a.e).localeCompare(M.name(b.e), "fr"));
+  // photo ticks with no photo in the app, one row per observation (the photo is shared by its lists)
+  const nphG = new Map();
+  for (const t of M.ticks) {
+    if (!t.d || t.cle === VU || /^(vu|entendu)/i.test(t.t || "")) continue;
+    const k = t.e + "|" + t.d; if (!nphG.has(k)) nphG.set(k, []);
+    const gs = nphG.get(k), g = gs.find((x) => M.sameObs(x[0], t)); if (g) g.push(t); else gs.push([t]);
+  }
+  c.noPhoto = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.ph || t.nph) && !M.firstPhotos(ts[0].e).some((p) => p.d === ts[0].d)).filter(anyOn)
+    .map((ts) => ({ ts, main: (sel && ts.find((t) => t.cle === sel)) || ts.find((t) => t.cle === LIFERS) || ts[0], folder: M.photoOn(ts[0].e, ts[0].d) }))
+    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
@@ -592,12 +604,18 @@ function screenTodo() {
       ${c.nested.map((x) => `<li><span>${nameLink(x.t.e)} est dans ${esc(L(x.liste).nom)} mais pas dans ${esc(L(x.parent).nom)}.</span> <a class="btn" href="#/espece/${esc(x.t.e)}">Voir</a></li>`).join("")}
     </ul></section>` : ""}
     <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}/modifier">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
+    <section data-n="${c.noPhoto.length}"><h3 class="minor">Coches sans photo · ${c.noPhoto.length}</h3><p class="cap">Une ligne par observation : sa photo vaut pour toutes ses listes. « Ajouter une photo » ouvre la coche ; « Pas de photo » la sort d'ici pour de bon. 📁 : ton dossier Liste a des photos de l'espèce ce jour-là.</p>${c.noPhoto.length ? `<ul class="todo">${c.noPhoto.slice(0, 150).map((x, i) => `<li><span>${nameLink(x.main.e)}${x.folder ? ' <span title="Photos ce jour-là dans ton dossier Liste">📁</span>' : ""} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${esc(fmtShort(x.main.d))}${x.main.l ? " · " + esc(x.main.l) : ""}</small></span><span class="row"><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}">Ajouter une photo</a><button class="btn" data-noph="${i}">Pas de photo</button></span></li>`).join("")}${c.noPhoto.length > 150 ? `<li><span class="cap">… et ${c.noPhoto.length - 150} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes tes coches photo ont leur photo.</p>'}</section>
     <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
       return `<section data-n="${open.length}"><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
   </div>`;
   // index of the categories: one chip per section, with what is left in it; a tap goes there
   const secs = $$(".screen > section", view);
+  $$("[data-noph]", view).forEach((b) => b.addEventListener("click", () => {
+    const x = c.noPhoto[+b.dataset.noph]; if (!x) return;
+    S.apply(x.ts.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { nph: true } })), `Pas de photo : ${M.name(x.main.e)} (${fmtShort(x.main.d)})`);
+    toast("Noté : pas de photo pour cette coche.");
+  }));
   $("#tdnav").innerHTML = secs.map((sec, i) => {
     sec.id = "td-" + i;
     const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();

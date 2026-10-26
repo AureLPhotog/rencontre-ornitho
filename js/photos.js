@@ -111,7 +111,7 @@ export function photoBox(el, where, phSlider) {
   const sid = where.kind === "tick" ? where.tick.e : where.sid;
   const cur = where.kind === "tick" ? where.tick.ph : (M.esp.get(sid) || {}).best;
   const obs = () => { if (where.kind !== "tick") return []; const t = where.tick; return [t, ...(t.d ? M.ticks.filter((x) => !(x.cle === where.cle && x.id === t.id) && M.sameObs({ ...t, cle: where.cle }, x)) : [])]; };
-  const setObs = (ph, label) => S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: { ph } })), label);
+  const setObs = (ph, label) => S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: ph ? { ph, nph: null } : { ph } })), label);
   const title = where.kind === "tick" ? `Photo de la coche · ${esc(M.liste.get(where.cle).nom)}` : "Meilleure photo (best of)";
   const lists = where.kind === "tick" ? obs().map((x) => M.liste.get(x.cle || where.cle).nom) : [];
   const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. Elle doit avoir été prise le jour de la coche${where.tick.d ? ` (${fmtShort(where.tick.d)})` : ""} : sa date de prise de vue est vérifiée.` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
