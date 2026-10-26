@@ -8,7 +8,7 @@ import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { distKm, whereIs, lieuDit } from "./geo.js";
+import { distKm, whereIs, lieuDit, lieuOuessant, vagueName } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -357,9 +357,10 @@ function screenYear(y) {
 // a name for a place known only by its coordinates: the same observation in another list,
 // a named tick within 300 m, else the commune (geo.api.gouv.fr, Nominatim abroad)
 async function nameFor(t) {
-  const named = M.ticks.filter((x) => x.l && x.lat != null && !["France", "Guyane", "Espagne"].includes(x.l));
+  const named = M.ticks.filter((x) => x.l && x.lat != null && !vagueName(x.l));
   const same = named.find((x) => x.e === t.e && t.d && x.d === t.d && distKm(x, t) < 2);
   if (same) return { l: same.l, sl: same.sl || null };
+  const obn = await lieuOuessant(t.lat, t.lon); if (obn) return { l: obn, sl: "obn" };
   let best = null, bd = 0.3; for (const x of named) { const d = distKm(x, t); if (d < bd) { bd = d; best = x; } }
   if (best) return { l: best.l, sl: best.sl || null };
   for (const x of M.db.lieux || []) if (x.lat != null && distKm(x, t) < 0.3) return { l: x.nom, sl: "appli" };

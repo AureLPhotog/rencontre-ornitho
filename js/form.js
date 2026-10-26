@@ -2,7 +2,7 @@
 // a name you already gave within 300 m: a named tick (not a bare region name) or a saved place
 function ownPlaceNear(pt) {
   let best = null, bd = 0.3;
-  for (const x of [...M.ticks.filter((t) => t.l && t.lat != null && !["France", "Guyane", "Espagne"].includes(t.l)), ...(M.db.lieux || []).map((x) => ({ ...x, l: x.nom }))]) {
+  for (const x of [...M.ticks.filter((t) => t.l && t.lat != null && !vagueName(t.l)), ...(M.db.lieux || []).map((x) => ({ ...x, l: x.nom }))]) {
     if (x.lat == null) continue; const d = distKm(x, pt); if (d < bd) { bd = d; best = x.l; }
   }
   return best;
@@ -11,7 +11,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
-import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit } from "./geo.js";
+import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit, lieuOuessant, vagueName } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
@@ -159,6 +159,10 @@ export function renderAdd(view, q) {
     if (near) { st.zone = near.cle; saveUI({ zone: st.zone }); if (free()) setL(placeAt(near, st.d).nom || ""); }
     else if (isOuessant(st.lat, st.lon) && M.liste.has("ouessant")) st.zone = "ouessant";
     st.where = undefined; refresh();
+    // on Ouessant: the nearest lieu-dit of « Oiseaux d'Ouessant »
+    const obn = near ? null : await lieuOuessant(at.lat, at.lon);
+    if (st.lat !== at.lat || st.lon !== at.lon) return;
+    if (obn && free()) setL(obn);
     const w = await whereIs(st.lat, st.lon);
     if (st.lat !== at.lat || st.lon !== at.lon) return; // the point moved meanwhile
     st.where = w;
@@ -166,8 +170,9 @@ export function renderAdd(view, q) {
       if (!isFrance(st.p)) { st.p = ""; $("#f-pays").value = ""; }
       if (!near && w.dep) { const z = zones.find((l) => !l.lieux && listCovers(l, w)); st.zone = z ? z.cle : ""; saveUI({ zone: st.zone }); }
       // a place you already named within 300 m (a tick or a saved place), else the commune then the IGN lieu-dit
-      const own = near ? null : ownPlaceNear(at);
-      if (free() && own) setL(own);
+      const own = near || obn ? null : ownPlaceNear(at);
+      if (obn) { /* named above */ }
+      else if (free() && own) setL(own);
       else if (free() && !near && w.commune) {
         const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; setL(`${w.commune}${w.dep ? ` (${w.dep})` : ""}`); const auto = st.l;
         lieuDit(at.lat, at.lon, w.commune).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) setL(`${ld.name} (${com})`); });
@@ -269,7 +274,9 @@ export function renderEdit(view, cle, id) {
   const free = () => !st.l || st.l === st.autoL, setL = (v) => { st.l = st.autoL = v; $("#f-lieu").value = v; };
   wirePlace(st, async () => {
     if (st.lat == null) return;
-    const at = { lat: st.lat, lon: st.lon }, own = ownPlaceNear(at);
+    const at = { lat: st.lat, lon: st.lon }, obn = await lieuOuessant(at.lat, at.lon);
+    if (st.lat !== at.lat || st.lon !== at.lon) return;
+    const own = obn || ownPlaceNear(at);
     if (own && free()) setL(own);
     const w = await whereIs(at.lat, at.lon);
     if (st.lat !== at.lat || st.lon !== at.lon || !w) return; // the point moved meanwhile

@@ -118,3 +118,22 @@ export async function lieuDit(lat, lon, commune) {
   }
   return best || false;
 }
+
+// Ouessant: the lieux-dits of the app « Oiseaux d'Ouessant » (only read from its site, never written), the nearest within 300 m
+export const onOuessant = (lat, lon) => lat > 48.40 && lat < 48.50 && lon > -5.17 && lon < -5.00;
+const OBN = ["https://aurelphotog.github.io/ouessant-birds/lieux_ouessant.json", "https://raw.githubusercontent.com/AureLPhotog/ouessant-birds/main/lieux_ouessant.json"];
+let obnList = null;
+function ouessantLieux() {
+  if (!obnList) obnList = (async () => {
+    for (const u of OBN) { try { const r = await fetch(u, { cache: "no-cache" }); if (r.ok) { const j = await r.json(); if (Array.isArray(j)) return j.filter((x) => x.nom && x.lat != null && x.lon != null); } } catch (_) {} }
+    obnList = null; return []; // no network: try again next time
+  })();
+  return obnList;
+}
+export async function lieuOuessant(lat, lon, maxKm = 0.3) {
+  if (lat == null || !onOuessant(lat, lon)) return null;
+  let best = null, bd = maxKm; for (const x of await ouessantLieux()) { const d = distKm({ lat, lon }, x); if (d <= bd) { bd = d; best = x; } }
+  return best ? `${best.nom} (Ouessant, 29)` : null;
+}
+// a bare commune or region name says nothing of the spot: never offered as « a name you already gave »
+export const vagueName = (l) => /^(france|guyane|espagne|ouessant)( \(29\))?$/i.test(String(l || "").trim());
