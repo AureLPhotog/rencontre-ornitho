@@ -105,6 +105,26 @@ export function refuse(meta, { sid, tick }) {
   return null;
 }
 
+// the observation (ticks of the same sighting) a best-of photo belongs to: same species, same day; when that day holds
+// several sightings, the one nearest in time. Not when the observation already has its own photo.
+function bestToTick(sid, ph) {
+  if (!ph || !ph.d) return {};
+  const day = M.ticks.filter((t) => t.e === sid && t.d === ph.d);
+  if (!day.length) return {};
+  const groups = []; day.forEach((t) => { const g = groups.find((x) => M.sameObs(x[0], t)); if (g) g.push(t); else groups.push([t]); });
+  let g = groups[0];
+  if (groups.length > 1) {
+    const mins = (h) => { const m = /^(\d{1,2}):(\d{2})/.exec(h || ""); return m ? +m[1] * 60 + +m[2] : null; }, ph_ = mins(ph.h);
+    const timed = groups.map((x) => ({ x, m: Math.min(...x.map((t) => mins(t.h)).filter((v) => v != null)) })).filter((y) => isFinite(y.m));
+    if (ph_ == null || !timed.length) return { why: `Le ${fmtShort(ph.d)} a plusieurs observations de l'espèce : ajoute-la toi-même à la bonne coche.` };
+    g = timed.sort((a, b) => Math.abs(a.m - ph_) - Math.abs(b.m - ph_))[0].x;
+  }
+  const same = (t) => t.ph && (t.ph.img || t.ph.url) === (ph.img || ph.url);
+  if (g.every(same)) return {};
+  if (g.some((t) => t.ph)) return { why: `La coche du ${fmtShort(ph.d)} a déjà sa propre photo : gardée.` };
+  return { ticks: g };
+}
+
 // ---------- the widget ----------
 // where: { kind: "tick", cle, tick } or { kind: "best", sid }
 export function photoBox(el, where, phSlider) {
@@ -135,9 +155,14 @@ export function photoBox(el, where, phSlider) {
     });
   };
   const store_ = (ph, q) => {
-    if (where.kind === "tick") setObs(ph, `Photo de la coche : ${M.name(sid)} (${obs().map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`);
-    else S.apply({ kind: "set-espece", id: sid, patch: q ? { best: ph, q } : { best: ph } }, `Meilleure photo : ${M.name(sid)}${q ? " (étiquette " + q + ")" : ""}`);
-    toast("Photo enregistrée."); again();
+    if (where.kind === "tick") { setObs(ph, `Photo de la coche : ${M.name(sid)} (${obs().map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`); toast("Photo enregistrée."); again(); return; }
+    // a best-of photo taken the day of a tick without photo becomes the photo of that observation too
+    const to = bestToTick(sid, ph);
+    const ops = [{ kind: "set-espece", id: sid, patch: q ? { best: ph, q } : { best: ph } }];
+    if (to.ticks) to.ticks.forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: { ph, nph: null } }));
+    S.apply(ops, `Meilleure photo : ${M.name(sid)}${q ? " (étiquette " + q + ")" : ""}${to.ticks ? ` · aussi photo de la coche du ${fmtShort(ph.d)} (${to.ticks.map((x) => M.liste.get(x.cle).nom).join(", ")})` : ""}`);
+    toast(to.ticks ? `Photo enregistrée, et ajoutée à la coche du ${fmtShort(ph.d)} (${to.ticks.map((x) => M.liste.get(x.cle).nom).join(", ")}).` : to.why ? `Photo enregistrée. ${to.why}` : "Photo enregistrée.");
+    again();
   };
   // draw the box again with what the base now holds
   const again = () => { const w = where.kind === "tick" ? { ...where, tick: (M.db.coches[where.cle] || []).find((x) => x.id === where.tick.id) || where.tick } : where; photoBox(el, w, phSlider); };
@@ -147,7 +172,7 @@ export function photoBox(el, where, phSlider) {
       const meta = readMeta(await f.arrayBuffer());
       const small = await shrink(f);
       offer(meta, URL.createObjectURL(small), async () => {
-        const path = where.kind === "tick" ? `data/photos/listes/${where.cle}/${where.tick.id}.jpg` : `data/photos/best/${sid}.jpg`;
+        const path = where.kind === "tick" ? `data/photos/listes/${where.cle}/${where.tick.id}.jpg` : `data/photos/best/${sid}-${Date.now().toString(36)}.jpg`;
         await S.putImage(path, small, `${where.kind === "tick" ? "Photo de la coche" : "Meilleure photo"} : ${M.name(sid)}`);
         return { img: path, d: meta.d, h: meta.h, file: f.name, src: "appli" };
       });
@@ -157,7 +182,7 @@ export function photoBox(el, where, phSlider) {
   const fl = $(".ph-fl input", el);
   $(".ph-fl button", el).addEventListener("click", async () => {
     if (!fl.value.trim()) return; say("Lecture sur Flickr…");
-    const path = where.kind === "tick" ? `data/photos/listes/${where.cle}/${where.tick.id}.jpg` : `data/photos/best/${sid}.jpg`;
+    const path = where.kind === "tick" ? `data/photos/listes/${where.cle}/${where.tick.id}.jpg` : `data/photos/best/${sid}-${Date.now().toString(36)}.jpg`;
     const label = where.kind === "tick" ? "Photo de la coche" : "Meilleure photo";
     try {
       const v = fl.value.trim();
