@@ -42,7 +42,7 @@ export function mapView(el, points) {
   LAYERS.plan().addTo(map);
   // the bigger, more important points last, so they stay on top
   const sorted = points.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
-  const g = L().featureGroup(sorted.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 6, color: p.stroke || p.color || "#0A7895", fillColor: p.color || "#0A7895", weight: p.stroke ? 4 : 2, fillOpacity: p.z ? 0.9 : 0.55 }).bindPopup(p.html))).addTo(map);
+  const g = L().featureGroup(sorted.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 6, color: p.stroke || p.color || "#0A7895", fillColor: p.color || "#0A7895", weight: p.stroke ? 4 : 2, fillOpacity: p.z ? 0.9 : 0.55 }).bindPopup(() => { if (!p._el) { p._el = document.createElement("div"); p._el.innerHTML = p.html; } return p._el; }, { maxWidth: 280, minWidth: 200, autoPanPadding: [10, 10] }))).addTo(map);
   map.fitBounds(g.getBounds().pad(0.3), { maxZoom: 13 });
   setTimeout(() => map.invalidateSize(), 60);
   return map;

@@ -110,12 +110,16 @@ export function refuse(meta, { sid, tick }) {
 export function photoBox(el, where, phSlider) {
   const sid = where.kind === "tick" ? where.tick.e : where.sid;
   const cur = where.kind === "tick" ? where.tick.ph : (M.esp.get(sid) || {}).best;
+  const obs = () => { if (where.kind !== "tick") return []; const t = where.tick; return [t, ...(t.d ? M.ticks.filter((x) => !(x.cle === where.cle && x.id === t.id) && M.sameObs({ ...t, cle: where.cle }, x)) : [])]; };
+  const setObs = (ph, label) => S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: { ph } })), label);
   const title = where.kind === "tick" ? `Photo de la coche · ${esc(M.liste.get(where.cle).nom)}` : "Meilleure photo (best of)";
-  const help = where.kind === "tick" ? `Elle ne s'affiche que dans cette liste. Elle doit avoir été prise le jour de la coche${where.tick.d ? ` (${fmtShort(where.tick.d)})` : ""} : sa date de prise de vue est vérifiée.` : "Elle s'affiche sur la fiche de l'espèce, jamais sur la carte.";
+  const lists = where.kind === "tick" ? obs().map((x) => M.liste.get(x.cle || where.cle).nom) : [];
+  const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. Elle doit avoir été prise le jour de la coche${where.tick.d ? ` (${fmtShort(where.tick.d)})` : ""} : sa date de prise de vue est vérifiée.` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
   el.innerHTML = `<section class="panel phbox"><h3 class="minor">${title}</h3><p class="cap">${help}</p>
     <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? "Photo de la coche" : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
     <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}</div>
     <div class="row ph-fl"><input class="field" type="url" placeholder="ou lien Flickr (page de la photo, ou lien direct de l’image)"><button type="button" class="btn">Vérifier</button></div>
+    ${where.kind === "best" ? (() => { const mine = M.allPhotos(sid).filter((p) => !cur || (p.img || p.url) !== (cur.img || cur.url)); return mine.length ? `<p class="cap">Parmi tes photos de l'espèce :</p><div class="ph-pick">${mine.map((p, i) => `<button type="button" class="ph-pk" data-i="${i}" title="${esc(p.label)}"><img class="ph" data-ph="${esc(p.img || p.url)}" data-alt="" alt=""><small>${esc(p.label)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}</small></button>`).join("")}</div>` : ""; })() : ""}
     <div class="ph-new"></div><p class="msg"></p></section>`;
   const msg = $(".msg", el), box = $(".ph-new", el);
   const say = (t, cls = "") => { msg.className = "msg " + cls; msg.textContent = t; };
@@ -131,7 +135,7 @@ export function photoBox(el, where, phSlider) {
     });
   };
   const store_ = (ph) => {
-    if (where.kind === "tick") S.apply({ kind: "set-tick", cle: where.cle, id: where.tick.id, patch: { ph } }, `Photo de la coche : ${M.name(sid)} (${M.liste.get(where.cle).nom})`);
+    if (where.kind === "tick") setObs(ph, `Photo de la coche : ${M.name(sid)} (${obs().map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`);
     else S.apply({ kind: "set-espece", id: sid, patch: { best: ph } }, `Meilleure photo : ${M.name(sid)}`);
     toast("Photo enregistrée."); again();
   };
@@ -175,10 +179,18 @@ export function photoBox(el, where, phSlider) {
       }
     } catch (err) { box.innerHTML = ""; say(err.message, "bad"); }
   });
+  if (where.kind === "best") {
+    const mine = M.allPhotos(sid).filter((p) => !cur || (p.img || p.url) !== (cur.img || cur.url));
+    el.querySelectorAll(".ph-pk").forEach((b) => b.addEventListener("click", () => {
+      const p = mine[+b.dataset.i]; if (!p) return;
+      const { label, ...ph } = p; // the label belongs to where it was shown, not to the photo
+      store_(ph);
+    }));
+  }
   const del = $(".ph-del", el);
   if (del) del.addEventListener("click", () => {
     if (!del.dataset.armed) { del.dataset.armed = "1"; del.textContent = "Confirmer : retirer"; return; }
-    if (where.kind === "tick") S.apply({ kind: "set-tick", cle: where.cle, id: where.tick.id, patch: { ph: null } }, `Photo retirée : ${M.name(sid)} (${M.liste.get(where.cle).nom})`);
+    if (where.kind === "tick") setObs(null, `Photo retirée : ${M.name(sid)} (${M.liste.get(where.cle).nom})`);
     else S.apply({ kind: "set-espece", id: sid, patch: { best: null } }, `Meilleure photo retirée : ${M.name(sid)}`);
     toast("Photo retirée."); again();
   });

@@ -37,7 +37,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error, "erro
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
   [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
-  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
+  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
 let current = "";
@@ -97,7 +97,7 @@ export function wirePhotos(root) {
 }
 // a tap on a photo shows it big
 document.addEventListener("click", (ev) => {
-  const im = ev.target.closest("img.ph[src]"); if (!im) return;
+  const im = ev.target.closest("img.ph[src]"); if (!im || im.closest(".ph-pk")) return;
   const box = document.createElement("div"); box.className = "lightbox"; box.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}"><button type="button" aria-label="Fermer">×</button>`;
   const close = () => { box.remove(); document.removeEventListener("keydown", esc_); };
   const esc_ = (e) => { if (e.key === "Escape") close(); };
@@ -177,6 +177,34 @@ function screenList(cle) {
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
 }
 
+// ---------- one tick ----------
+// what was seen that day in that list; the species page is one tap away, and so are the same sighting in the other lists
+function screenTick(cle, id) {
+  const t = M.ticks.find((x) => x.cle === cle && x.id === id), l = M.liste.get(cle);
+  if (!t || !l) { view.innerHTML = '<p class="empty">Cette coche n\'existe plus.</p>'; return; }
+  const e = M.esp.get(t.e) || { n: t.e }, rk = M.rankOf(t);
+  const photos = M.photosFor(t, { first: withPhotos(l) });
+  const twins = t.d ? M.ticks.filter((x) => x !== t && M.sameObs(t, x)) : [];
+  view.innerHTML = `<div class="screen">
+    <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a>
+      <p class="cap">${chip(cle)}${rk ? ` <b>n°${rk}</b>` : ""}</p>
+      <h1><a class="sp-link" href="#/espece/${esc(t.e)}?l=${esc(cle)}">${esc(e.n)}</a>${qTag(e.q)}</h1>
+      <p class="cap">${e.sc ? `<i>${esc(e.sc)}</i>` : ""}</p></header>
+    <a class="btn btn-primary" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Page de l'espèce : toutes les listes et toutes les photos →</a>
+    ${photos.length ? `<section class="sp-photos">${phSlider(photos, e.n)}</section>` : ""}
+    <ul class="plain tkinfo"><li><b>Date</b> ${t.d ? esc(fmtDay(t.d)) : "<em>sans date</em>"}${t.sd ? ` <small>(${esc(srcName(t.sd))})</small>` : ""}</li>
+      <li><b>Lieu</b> ${t.l ? esc(t.l) : "<em>sans nom</em>"}${t.lat != null ? ` · <a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${t.lat}, ${t.lon}</a>` : " · <em>sans coordonnées</em>"}${t.sl ? ` <small>(${esc(srcName(t.sl))})</small>` : ""}</li>
+      ${!isFrance(t.p) ? `<li><b>Pays</b> ${esc(t.p)}</li>` : ""}${t.t ? `<li><b>Détail</b> ${esc(t.t)}</li>` : ""}
+      ${twins.length ? `<li><b>Même observation</b> ${twins.map((x) => `<a class="chip-s" ${cstyle(x.cle)} href="#/coche/${x.cle}/${x.id}">${esc(L(x.cle).nom)}${M.rankOf(x) ? " n°" + M.rankOf(x) : ""}</a>`).join(" ")}</li>` : ""}</ul>
+    ${t.lat != null ? '<div class="minimap" id="tkm"></div>' : ""}
+    <div class="row"><a class="btn" href="#/coche/${cle}/${id}/modifier">Modifier la coche</a></div>
+    <div id="tk-ph"></div>
+  </div>`;
+  if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
+  photoBox($("#tk-ph"), { kind: "tick", cle, tick: t }, phSlider);
+  wirePhotos(view);
+}
+
 // ---------- one list on a map ----------
 // every list has its map; the photos show only on the Lifers, Photo France and the country lists (Guyane, Suisse, Espagne…)
 const withPhotos = (l) => l.cle === LIFERS || l.cle === PHOTO_FR || l.type === "pays";
@@ -190,7 +218,7 @@ function screenListMap(cle) {
   // ticks on the very same point (same GPS fix, same named place) share one marker: its popup goes from one species to the next
   const groups = new Map();
   placed.forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
-  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(photosOf(t), M.name(t.e)) || (ph ? '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : "")}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
+  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(photosOf(t), M.name(t.e)) || (ph ? '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : "")}<span class="pop-links"><a class="linkish" href="#/coche/${esc(cle)}/${esc(t.id)}">La coche</a> · <a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">L'espèce</a></span>`; };
   const pts = [...groups.values()].map((ts) => {
     ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || (a.d || "").localeCompare(b.d || ""));
     return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: !ph || ts.some((t) => photosOf(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
@@ -359,22 +387,25 @@ function screenSpecies(sid, q) {
   const navBar = at >= 0 ? `<nav class="spnav" aria-label="Espèces de la liste">${prev ? `<a class="spnav-a" href="${to(prev)}" data-nav="prev" aria-label="Espèce précédente : ${esc(M.name(prev))}">‹<span>${esc(M.name(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.ids.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="${to(next)}" data-nav="next" aria-label="Espèce suivante : ${esc(M.name(next))}"><span>${esc(M.name(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>` : "";
   const m = M.bySp.get(sid) || new Map();
   const st = (e.st || []).map((v, i) => v ? `${["Nicheur", "Hivernant", "De passage", "Occasionnel"][i]} ${esc(v)}` : "").filter(Boolean).join(" · ");
-  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""}${t.ph ? ' · <span title="Photo de la coche (dans cette liste)">📷</span>' : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">modifier${t.ph ? "" : " · ajouter une photo"}</a></span>`).join("")}</li>`).join("");
+  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""}${t.ph ? ' · <span title="Photo de la coche">📷</span>' : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">voir la coche</a></span>`).join("")}</li>`).join("");
   // one point per place: Photo France in green, the lifer in red, everything else in blue
   const byPlace = new Map();
   [...m.values()].flat().filter((t) => t.lat != null).forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!byPlace.has(k)) byPlace.set(k, []); byPlace.get(k).push(t); });
   const pts = [...byPlace.values()].map((ts) => {
     const lif = ts.some((t) => t.cle === LIFERS), pf = ts.some((t) => t.cle === PHOTO_FR);
     const style = lif && pf ? { color: "#D7263D", stroke: "#2E9B4F", r: 10, z: 3 } : lif ? { color: "#D7263D", r: 9, z: 2 } : pf ? { color: "#2E9B4F", r: 9, z: 2 } : { color: "#0A7895", r: 6, z: 0 };
-    return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: ts.map((t) => `<b>${esc(L(t.cle).nom)}</b>${M.rankOf(t) ? " n°" + M.rankOf(t) : ""} · ${esc(t.d ? fmtShort(t.d) : "")}`).join("<br>") + (ts[0].l ? `<br>${esc(ts[0].l)}` : "") };
+    // the photo taken at that point (photo of the tick, or first photo of that day on the photo lists)
+    const seen = new Set(), photos = [];
+    ts.forEach((t) => M.photosFor(t, { first: withPhotos(L(t.cle)) }).forEach((p) => { const k = p.img || p.url; if (!seen.has(k)) { seen.add(k); photos.push({ ...p, label: t.ph ? `Photo de la coche · ${L(t.cle).nom}` : "Photo de ce jour-là" }); } }));
+    return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: `<div class="pop">${phSlider(photos, e.n)}<div class="pop-ticks">${ts.map((t) => `<a class="chip-s" ${cstyle(t.cle)} href="#/coche/${t.cle}/${t.id}">${esc(L(t.cle).nom)}${M.rankOf(t) ? " n°" + M.rankOf(t) : ""}</a>`).join(" ")}</div><small>${[...new Set(ts.map((t) => t.d ? fmtShort(t.d) : ""))].filter(Boolean).join(", ")}${ts[0].l ? " · " + esc(ts[0].l) : ""}</small></div>` };
   });
   view.innerHTML = `<div class="screen">
     ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Qualité photo</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}</div></header>
-    ${(() => { const ph = [...M.firstPhotos(sid).map((p, i, a) => ({ ...p, label: a.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo" })), ...(M.bestPhoto(sid) ? [{ ...M.bestPhoto(sid), label: "Meilleure photo" }] : [])]; return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n)}</section>` : ""; })()}
+    ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n)}</section>` : ""; })()}
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
-    <div id="sp-best"></div>
+    <details class="panel" id="sp-best-d"><summary>${M.bestPhoto(sid) ? "Changer la meilleure photo" : "Ajouter une meilleure photo (best of)"}</summary><div id="sp-best"></div></details>
     <details class="panel"><summary>Noms de l'espèce</summary>
       <form id="names" class="form"><label>Nom<input class="field" id="n-n" value="${esc(e.n)}"></label>
         <label>Nom latin <small>(la référence pour les imports)</small><input class="field" id="n-sc" value="${esc(e.sc || "")}"></label>
@@ -382,7 +413,7 @@ function screenSpecies(sid, q) {
         <label>Autres noms latins <small>(anciens ou d'autres nomenclatures)</small><input class="field" id="n-scs" value="${esc((e.scs || []).join(", "))}"></label>
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
-  if (pts.length) mapView($("#mm"), pts);
+  if (pts.length) { const mm = mapView($("#mm"), pts); if (mm) mm.on("popupopen", (ev) => { const el = ev.popup.getElement(); wirePhotos(el); $$("img[data-ph]", el).forEach((im) => im.addEventListener("load", () => ev.popup.update(), { once: true })); }); }
   photoBox($("#sp-best"), { kind: "best", sid }, phSlider);
   wirePhotos(view);
   // moving between species replaces the page in the history, so « Retour » goes back to the list
@@ -463,7 +494,7 @@ function taskView(t) {
   const tk = t.sid && t.cle ? M.tick(t.sid, t.cle) : null, gone = t.sid && t.cle && !tk;
   const who = t.sid ? `${nameLink(t.sid)} ${t.cle ? chip(t.cle) : ""}` : t.cle ? chip(t.cle) : "";
   const act = (a, label, primary) => `<button class="btn${primary ? " btn-primary" : ""}" data-act="${esc(t.id)}:${a}">${label}</button>`;
-  const edit = tk ? `<a class="btn" href="#/coche/${tk.cle}/${tk.id}">Corriger</a>` : "";
+  const edit = tk ? `<a class="btn" href="#/coche/${tk.cle}/${tk.id}/modifier">Corriger</a>` : "";
   let done = !!t.fait || gone, body = "", btns = "";
   if (t.kind === "check") {
     done = done || Object.entries(t.watch || {}).some(([k, v]) => (tk[k] ?? null) !== v);
@@ -531,7 +562,7 @@ function screenTodo() {
   view.innerHTML = `<div class="screen keep-scroll"><h2>À faire</h2>
     <div class="tdbar"><label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
     <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav></div>
-    ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}">Corriger</a></li>`).join("")}</ul></section>` : ""}
+    ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}/modifier">Corriger</a></li>`).join("")}</ul></section>` : ""}
     ${c.zoneFirst.length ? `<section data-n="${c.zoneFirst.length}"><h3 class="minor">Première donnée de la zone · ${c.zoneFirst.length}</h3><p class="cap">Une liste de région, de département ou de commune commence à ta première photo prise dans la zone, quelle que soit la liste qui la porte (Photo France, Lifers, year list, Rhône, Jardin…). Ici, une coche placée dans la zone est plus ancienne que celle de la liste, ou la liste n'a pas encore l'espèce.</p><ul class="todo">
       ${c.zoneFirst.map((x, i) => `<li><span>${nameLink(x.e)} ${chip(x.zone)}<small>${x.zt ? `${esc(L(x.zone).nom)} <b>${esc(fmtShort(x.zt.d))}</b> · ` : `pas dans ${esc(L(x.zone).nom)} · `}${chip(x.first.cle)} <b>${esc(fmtShort(x.first.d))}</b>${x.first.l ? " · " + esc(x.first.l) : ""}</small></span><span class="row"><button class="btn" data-zftake="${i}">${x.zt ? "Prendre " + esc(fmtShort(x.first.d)) : "Ajouter à " + esc(L(x.zone).nom)}</button>${x.zt ? `<button class="btn" data-zfkeep="${i}">Garder ${esc(fmtShort(x.zt.d))}</button>` : ""}</span></li>`).join("")}</ul></section>` : ""}
     ${c.photoEarlier.length ? `<section data-n="${c.photoEarlier.length}"><h3 class="minor">Une photo plus ancienne que la coche · ${c.photoEarlier.length}</h3><p class="cap">Tes dossiers photos ont l'espèce avant la date de la coche (Photo France : ta toute première photo ; year list : ta première photo de l'année). La photo fait foi. « Prendre » met la date de la photo (Photo France : avec le lifer du même jour ; year list : elle seule) ; le lieu vient d'une coche de ce jour-là, sinon il est à compléter. « Garder » confirme la date de l'appli.</p><ul class="todo">
@@ -542,11 +573,11 @@ function screenTodo() {
     ${c.placeMismatch.length ? `<section data-n="${c.placeMismatch.length}"><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
       ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
     ${c.yearMissing.length || c.nested.length || c.yearWrong.length ? `<section data-n="${c.yearMissing.length + c.nested.length + c.yearWrong.length}"><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
-      ${c.yearWrong.map((t) => `<li><span>${nameLink(t.e)} est dans ${esc(L(t.cle).nom)} mais datée du ${esc(fmtShort(t.d))}.</span> <a class="btn" href="#/coche/${t.cle}/${t.id}">Corriger</a></li>`).join("")}
+      ${c.yearWrong.map((t) => `<li><span>${nameLink(t.e)} est dans ${esc(L(t.cle).nom)} mais datée du ${esc(fmtShort(t.d))}.</span> <a class="btn" href="#/coche/${t.cle}/${t.id}/modifier">Corriger</a></li>`).join("")}
       ${c.yearMissing.map((x) => `<li><span>${nameLink(x.t.e)} a une coche datée de ${x.year} (${esc(L(x.t.cle).nom)}, ${esc(fmtShort(x.t.d))}) mais n'est pas dans la year list ${x.year}.</span> <button class="btn" data-addyl="${x.t.cle}/${x.t.id}">Ajouter à ${x.year}</button></li>`).join("")}
       ${c.nested.map((x) => `<li><span>${nameLink(x.t.e)} est dans ${esc(L(x.liste).nom)} mais pas dans ${esc(L(x.parent).nom)}.</span> <a class="btn" href="#/espece/${esc(x.t.e)}">Voir</a></li>`).join("")}
     </ul></section>` : ""}
-    <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
+    <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}/modifier">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
     <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
       return `<section data-n="${open.length}"><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}

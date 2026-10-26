@@ -8,8 +8,7 @@ function ownPlaceNear(pt) {
   return best;
 }
 import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName, QUALITES } from "./util.js";
-import { S, M, go, UI, saveUI, phSlider, wirePhotos } from "./app.js";
-import { photoBox } from "./photos.js";
+import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
 import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit } from "./geo.js";
@@ -254,7 +253,7 @@ export function renderEdit(view, cle, id) {
   const st = { ...t0 };
   // the same sighting ticked in other lists (same species, same day): they share date and place
   const twins = t0.d ? M.ticks.filter((x) => !(x.cle === cle && x.id === id) && M.sameObs({ ...t0, cle }, x)) : [];
-  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(M.name(t0.e))}</h1><p class="cap">${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p>${t0.d || t0.l || t0.lat != null ? `<p class="cap">Source de la date : ${t0.d ? esc(srcName(t0.sd)) : "—"} · du lieu : ${t0.l || t0.lat != null ? esc(srcName(t0.sl)) : "—"}</p>` : ""}</header>
+  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1><a class="sp-link" href="#/espece/${esc(t0.e)}">${esc(M.name(t0.e))}</a></h1><p class="cap">Modifier la coche · ${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p>${t0.d || t0.l || t0.lat != null ? `<p class="cap">Source de la date : ${t0.d ? esc(srcName(t0.sd)) : "—"} · du lieu : ${t0.l || t0.lat != null ? esc(srcName(t0.sl)) : "—"}</p>` : ""}</header>
     <form id="ed" class="form">
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d || "")}"></label>${l.numerotee ? `<label>N°<input class="field" type="number" min="1" id="f-n" value="${esc(st.n || "")}"></label>` : `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>`}</div>
       ${l.numerotee ? `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>` : ""}
@@ -263,8 +262,7 @@ export function renderEdit(view, cle, id) {
       <label>Détail<input class="field" id="f-det" value="${esc(st.t || "")}"></label>
       ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} : la date et le lieu y changent aussi</label>` : ""}
       <div class="row"><button class="btn btn-primary btn-lg" type="submit">Enregistrer</button><a class="btn" href="javascript:history.back()">Annuler</a><button class="btn btn-danger" type="button" id="f-del">Supprimer</button></div>
-    </form><div id="f-ph"></div></div>`;
-  photoBox($("#f-ph"), { kind: "tick", cle, tick: t0 }, phSlider); wirePhotos($("#f-ph"));
+    </form></div>`;
   wirePlace(st);
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); });

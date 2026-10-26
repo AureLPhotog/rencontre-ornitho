@@ -108,6 +108,20 @@ export function buildModel(db) {
   M.firstPhotos = (sid) => (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone }));
   // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
   M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  // every photo of a species for its main page: the best first (else the lifer photo), then the first photos,
+  // then the photos added to ticks of the lists
+  M.allPhotos = (sid) => {
+    const out = [], seen = new Set(), add = (p, label) => { const k = p.img || p.url; if (!k || seen.has(k)) return; seen.add(k); out.push({ ...p, label }); };
+    const ticks = M.ticks.filter((t) => t.e === sid);
+    const lif = ticks.find((t) => t.cle === LIFERS), firsts = M.firstPhotos(sid);
+    const lifPhoto = lif && (lif.ph || firsts.find((p) => p.d === lif.d));
+    const best = M.bestPhoto(sid);
+    if (best) add(best, "Meilleure photo");
+    if (lifPhoto) add(lifPhoto, "Photo lifer");
+    firsts.forEach((p) => add(p, firsts.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo"));
+    ticks.filter((t) => t.ph).forEach((t) => add(t.ph, `Photo de la coche · ${(M.liste.get(t.cle) || { nom: t.cle }).nom}`));
+    return out;
+  };
   // what to show for a tick (map, to-do): only the photo of that very day, never one of another day or place,
   // and never the best photo (that one belongs to the species page)
   // a photo you added to the tick itself (t.ph) comes first: it belongs to that list only
