@@ -4,6 +4,7 @@ import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
 import { mapView, listMap } from "./map.js";
+import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
@@ -74,7 +75,7 @@ const phImg = (img, alt = "") => `<img class="ph" data-ph="${esc(img)}" data-alt
 let phObs = null;
 function hydrate(root) {
   const imgs = $$("img[data-ph]:not([data-done])", root); if (!imgs.length) return;
-  const load = (im) => { im.dataset.done = "1"; S.imageUrl(im.dataset.ph).then((u) => { if (u) { im.alt = im.dataset.alt || ""; im.src = u; } else im.classList.add("ph-none"); }).catch(() => im.classList.add("ph-none")); };
+  const load = (im) => { im.dataset.done = "1"; if (/^https?:/.test(im.dataset.ph)) { im.alt = im.dataset.alt || ""; im.src = im.dataset.ph; return; } S.imageUrl(im.dataset.ph).then((u) => { if (u) { im.alt = im.dataset.alt || ""; im.src = u; } else im.classList.add("ph-none"); }).catch(() => im.classList.add("ph-none")); };
   if (!("IntersectionObserver" in window)) { imgs.forEach(load); return; }
   phObs = phObs || new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { phObs.unobserve(e.target); load(e.target); } }), { rootMargin: "300px" });
   imgs.forEach((im) => phObs.observe(im));
@@ -82,11 +83,11 @@ function hydrate(root) {
 // any screen that draws photos gets them loaded, however it was drawn
 new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtree: true });
 // several photos of one species (photo of the tick, first photo, best photo): arrows to go from one to the other
-function phSlider(photos, name) {
+export function phSlider(photos, name) {
   if (!photos.length) return "";
-  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img, name)}<figcaption><b>${esc(p.label)}</b> · ${esc(fmtShort(p.d))}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
 }
-function wirePhotos(root) {
+export function wirePhotos(root) {
   $$(".phs:not([data-w])", root).forEach((box) => {
     box.dataset.w = "1"; const fs = $$(".phs-f", box);
     const show = (d) => { const i = (+box.dataset.i + d + fs.length) % fs.length; box.dataset.i = i; fs.forEach((f, k) => { f.hidden = k !== i; }); const n = $(".phs-n", box); if (n) n.textContent = `${i + 1} / ${fs.length}`; hydrate(box); };
@@ -181,7 +182,7 @@ function screenList(cle) {
 const withPhotos = (l) => l.cle === LIFERS || l.cle === PHOTO_FR || l.type === "pays";
 function screenListMap(cle) {
   const l = M.liste.get(cle); if (!l) return go("#/");
-  const ph = withPhotos(l), photosOf = (t) => (ph ? M.photosFor(t) : []);
+  const ph = withPhotos(l), photosOf = (t) => M.photosFor(t, { first: ph });
   const items = M.speciesOf(cle), placed = items.filter((t) => t.lat != null), color = M.color(cle);
   view.innerHTML = `<div class="screen screen-map"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Carte · ${esc(l.nom)}</h1>
     <p class="cap">${placed.length} ${plural(placed.length, "coche")} sur la carte${items.length > placed.length ? ` · ${items.length - placed.length} sans coordonnées` : ""}. ${ph ? "Touche un point pour voir l'espèce et la photo de cette coche." : "Touche un point pour voir l'espèce."}</p></header>
@@ -189,7 +190,7 @@ function screenListMap(cle) {
   // ticks on the very same point (same GPS fix, same named place) share one marker: its popup goes from one species to the next
   const groups = new Map();
   placed.forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
-  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${ph ? phSlider(photosOf(t), M.name(t.e)) || '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : ""}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
+  const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(photosOf(t), M.name(t.e)) || (ph ? '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : "")}<a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Fiche de l'espèce</a>`; };
   const pts = [...groups.values()].map((ts) => {
     ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || (a.d || "").localeCompare(b.d || ""));
     return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: !ph || ts.some((t) => photosOf(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
@@ -358,7 +359,7 @@ function screenSpecies(sid, q) {
   const navBar = at >= 0 ? `<nav class="spnav" aria-label="Espèces de la liste">${prev ? `<a class="spnav-a" href="${to(prev)}" data-nav="prev" aria-label="Espèce précédente : ${esc(M.name(prev))}">‹<span>${esc(M.name(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.ids.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="${to(next)}" data-nav="next" aria-label="Espèce suivante : ${esc(M.name(next))}"><span>${esc(M.name(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>` : "";
   const m = M.bySp.get(sid) || new Map();
   const st = (e.st || []).map((v, i) => v ? `${["Nicheur", "Hivernant", "De passage", "Occasionnel"][i]} ${esc(v)}` : "").filter(Boolean).join(" · ");
-  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">modifier</a></span>`).join("")}</li>`).join("");
+  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""}${t.ph ? ' · <span title="Photo de la coche (dans cette liste)">📷</span>' : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">modifier${t.ph ? "" : " · ajouter une photo"}</a></span>`).join("")}</li>`).join("");
   // one point per place: Photo France in green, the lifer in red, everything else in blue
   const byPlace = new Map();
   [...m.values()].flat().filter((t) => t.lat != null).forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!byPlace.has(k)) byPlace.set(k, []); byPlace.get(k).push(t); });
@@ -373,6 +374,7 @@ function screenSpecies(sid, q) {
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
+    <div id="sp-best"></div>
     <details class="panel"><summary>Noms de l'espèce</summary>
       <form id="names" class="form"><label>Nom<input class="field" id="n-n" value="${esc(e.n)}"></label>
         <label>Nom latin <small>(la référence pour les imports)</small><input class="field" id="n-sc" value="${esc(e.sc || "")}"></label>
@@ -381,6 +383,7 @@ function screenSpecies(sid, q) {
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) mapView($("#mm"), pts);
+  photoBox($("#sp-best"), { kind: "best", sid }, phSlider);
   wirePhotos(view);
   // moving between species replaces the page in the history, so « Retour » goes back to the list
   const move = (id) => { if (id) { location.replace(to(id)); scrollTo(0, 0); } };
@@ -609,7 +612,10 @@ function screenSettings() {
       <div class="row3"><label>Compte<input class="field" id="own" value="${esc(c.owner)}"></label><label>Dépôt<input class="field" id="rep" value="${esc(c.repo)}"></label><label>Branche<input class="field" id="br" value="${esc(c.branch)}"></label></div>
       <div class="row"><button class="btn btn-primary" type="submit">Enregistrer et tester</button></div><p class="msg" id="cmsg"></p>
     </form>
-    ${!first ? `<section class="panel"><p>${S.pending.length ? `${S.pending.length} ${plural(S.pending.length, "changement")} pas encore ${S.pending.length > 1 ? "envoyés" : "envoyé"}.` : "Tout est envoyé sur GitHub."} ${S.error ? `<br><span class="miss">${esc(S.error)}</span>` : ""}</p>
+    ${!first ? `<form class="panel" id="flk"><label>Clé API Flickr <small>(pour ajouter une photo par un lien Flickr)</small><input class="field" id="flkey" autocomplete="off" placeholder="32 caractères" value="${esc(flickrKey())}"></label>
+      <details><summary>Obtenir la clé (gratuite)</summary><ol class="steps"><li>Ouvre <a href="https://www.flickr.com/services/apps/create/apply/" target="_blank" rel="noopener">flickr.com › App Garden › Create an app</a> et choisis « non-commercial ».</li><li>Nom : « Rencontre Ornitho », une phrase de description, valide.</li><li>Copie la « Key » (pas le « Secret ») et colle-la ci-dessus.</li></ol></details>
+      <div class="row"><button class="btn" type="submit">Enregistrer la clé Flickr</button></div><p class="cap">Elle reste sur cet appareil.</p></form>
+    <section class="panel"><p>${S.pending.length ? `${S.pending.length} ${plural(S.pending.length, "changement")} pas encore ${S.pending.length > 1 ? "envoyés" : "envoyé"}.` : "Tout est envoyé sur GitHub."} ${S.error ? `<br><span class="miss">${esc(S.error)}</span>` : ""}</p>
       <div class="row"><button class="btn" id="sync" type="button">Synchroniser maintenant</button><button class="btn" id="reload" type="button">Relire toute la base</button></div>
       <p class="cap">« Relire toute la base » vide la copie gardée sur cet appareil et la relit sur GitHub. Les changements pas encore envoyés sont gardés.</p></section>` : ""}
   </div>`;
@@ -621,6 +627,7 @@ function screenSettings() {
     catch (err) { msg.className = "msg bad"; msg.textContent = err.message; }
   });
   const sb = $("#sync"); if (sb) sb.addEventListener("click", () => S.sync());
+  const fk = $("#flk"); if (fk) fk.addEventListener("submit", (e) => { e.preventDefault(); setFlickrKey($("#flkey").value); toast("Clé Flickr enregistrée."); });
   const rb = $("#reload"); if (rb) rb.addEventListener("click", () => { S.resetCache(); S.sync(); go("#/"); });
 }
 

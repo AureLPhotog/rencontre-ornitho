@@ -246,3 +246,6 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .pop-list button{border:1px solid #D5DFD9;background:#fff;border-radius:12px;padding:2px 8px;font-size:11px;cursor:pointer;color:#16302A}
 .pop-list button.on{background:#16302A;color:#fff;border-color:#16302A}
 .pop-card{display:flex;flex-direction:column;gap:4px}
+.phbox{margin-top:12px}.phbox .ph{max-height:60vh}.phbox .row{margin-top:8px}
+.ph-fl{display:flex;gap:8px}.ph-fl .field{flex:1}
+.ph-new img{margin-top:8px;border-radius:8px}

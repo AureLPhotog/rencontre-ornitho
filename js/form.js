@@ -8,7 +8,8 @@ function ownPlaceNear(pt) {
   return best;
 }
 import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, fmtShort, toast, store, srcName, QUALITES } from "./util.js";
-import { S, M, go, UI, saveUI } from "./app.js";
+import { S, M, go, UI, saveUI, phSlider, wirePhotos } from "./app.js";
+import { photoBox } from "./photos.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
 import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit } from "./geo.js";
@@ -262,7 +263,8 @@ export function renderEdit(view, cle, id) {
       <label>Détail<input class="field" id="f-det" value="${esc(st.t || "")}"></label>
       ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} : la date et le lieu y changent aussi</label>` : ""}
       <div class="row"><button class="btn btn-primary btn-lg" type="submit">Enregistrer</button><a class="btn" href="javascript:history.back()">Annuler</a><button class="btn btn-danger" type="button" id="f-del">Supprimer</button></div>
-    </form></div>`;
+    </form><div id="f-ph"></div></div>`;
+  photoBox($("#f-ph"), { kind: "tick", cle, tick: t0 }, phSlider); wirePhotos($("#f-ph"));
   wirePlace(st);
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); });

@@ -106,10 +106,15 @@ export function buildModel(db) {
   M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
   // the pictures themselves (small copies in the data repo): first photos [date, time, image, original file, zone], best photo
   M.firstPhotos = (sid) => (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone }));
-  M.bestPhoto = (sid) => { const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
+  M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
   // what to show for a tick (map, to-do): only the photo of that very day, never one of another day or place,
   // and never the best photo (that one belongs to the species page)
-  M.photosFor = (t) => { const same = M.firstPhotos(t.e).find((x) => x.d === t.d); return same ? [{ ...same, label: "Photo de la coche" }] : []; };
+  // a photo you added to the tick itself (t.ph) comes first: it belongs to that list only
+  M.photosFor = (t, { first = true } = {}) => {
+    if (t.ph) return [{ ...t.ph, label: "Photo de la coche" }];
+    const same = first ? M.firstPhotos(t.e).find((x) => x.d === t.d) : null; return same ? [{ ...same, label: "Photo de la coche" }] : [];
+  };
   // a species by any of its names: French name, other names, Latin names
   M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));
   M.matches = (k, text) => { if (!k) return true; const t = norm(text); if (t.includes(k)) return true; const max = maxErrors(k); return max > 0 && distanceInText(k, t) <= max; };

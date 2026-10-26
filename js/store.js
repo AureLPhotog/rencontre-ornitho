@@ -208,6 +208,25 @@ export class Store {
     this._img.set(sha, p); p.catch(() => this._img.delete(sha));
     return p;
   }
+  // send one photo to the repository at once (its own commit); a photo already there is replaced
+  async putImage(path, blob, message) {
+    const bytes = new Uint8Array(await blob.arrayBuffer()); let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const url = this.repoPath(`/contents/${path.split("/").map(encodeURIComponent).join("/")}`);
+    const send = (sha) => this.gh("PUT", url, { message, content: btoa(bin), branch: this.cfg.branch, ...(sha ? { sha } : {}) });
+    let r;
+    try { r = await send(this.images[path]); }
+    catch (e) {
+      if (e.status !== 409 && e.status !== 422) throw e;
+      // the file changed (or exists) without us knowing its version: ask for it and try again
+      const cur = await this.gh("GET", `${url}?ref=${encodeURIComponent(this.cfg.branch)}`).catch(() => null);
+      r = await send(cur && cur.sha);
+    }
+    const sha = r.content.sha; this.images[path] = sha; this._save();
+    this._img = this._img || new Map(); this._img.set(sha, Promise.resolve(URL.createObjectURL(blob)));
+    try { const c = await caches.open("ro-photos-v1"); await c.put(`https://ro-photos.invalid/${sha}.jpg`, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })); } catch (_) {}
+    return sha;
+  }
   resetCache() { this.files = {}; this.commit = null; this._rebuild(); this._save(); }
 }
 
