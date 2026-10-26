@@ -114,7 +114,7 @@ export function photoBox(el, where, phSlider) {
   el.innerHTML = `<section class="panel phbox"><h3 class="minor">${title}</h3><p class="cap">${help}</p>
     <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? "Photo de la coche" : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
     <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}</div>
-    <div class="row ph-fl"><input class="field" type="url" placeholder="ou lien Flickr (flickr.com/photos/… ou flic.kr/p/…)"><button type="button" class="btn">Vérifier</button></div>
+    <div class="row ph-fl"><input class="field" type="url" placeholder="ou lien Flickr (page de la photo, ou lien direct de l’image)"><button type="button" class="btn">Vérifier</button></div>
     <div class="ph-new"></div><p class="msg"></p></section>`;
   const msg = $(".msg", el), box = $(".ph-new", el);
   const say = (t, cls = "") => { msg.className = "msg " + cls; msg.textContent = t; };
@@ -152,8 +152,27 @@ export function photoBox(el, where, phSlider) {
   const fl = $(".ph-fl input", el);
   $(".ph-fl button", el).addEventListener("click", async () => {
     if (!fl.value.trim()) return; say("Lecture sur Flickr…");
-    try { const p = await flickrPhoto(fl.value); offer(p, p.url, async () => ({ url: p.url, page: p.page, d: p.d, h: p.h, file: p.file, src: "flickr" })); }
-    catch (err) { box.innerHTML = ""; say(err.message, "bad"); }
+    const path = where.kind === "tick" ? `data/photos/listes/${where.cle}/${where.tick.id}.jpg` : `data/photos/best/${sid}.jpg`;
+    const label = where.kind === "tick" ? "Photo de la coche" : "Meilleure photo";
+    try {
+      const v = fl.value.trim();
+      if (/^https?:\/\/\S+\.jpe?g(\?\S*)?$/i.test(v)) {
+        // a direct link to the image file: its own metadata is the only way to check the date
+        let r; try { r = await fetch(v); } catch (_) { throw new Error("Ce site ne laisse pas l'appli lire l'image. Donne le lien de la page Flickr."); }
+        if (!r.ok) throw new Error("Image introuvable à ce lien.");
+        const raw = await r.blob(), meta = readMeta(await raw.arrayBuffer());
+        if (!meta.d && /staticflickr/.test(v) && where.kind === "tick") throw new Error("Flickr retire la date de prise de vue de ses copies réduites : donne plutôt le lien de la page de la photo (avec la clé Flickr), ou le lien de l'original.");
+        offer(meta, v, async () => { const small = await shrink(raw); await S.putImage(path, small, `${label} : ${M.name(sid)}`); return { img: path, d: meta.d, h: meta.h, file: v.split("/").pop().split("?")[0], src: "lien" }; });
+      } else {
+        const p = await flickrPhoto(v);
+        // the picture itself is copied into your repository: it stays even if it leaves Flickr
+        offer(p, p.url, async () => {
+          const r = await fetch(p.url); if (!r.ok) throw new Error("Impossible de télécharger l'image depuis Flickr.");
+          await S.putImage(path, await shrink(await r.blob()), `${label} : ${M.name(sid)}`);
+          return { img: path, page: p.page, d: p.d, h: p.h, file: p.file, src: "flickr" };
+        });
+      }
+    } catch (err) { box.innerHTML = ""; say(err.message, "bad"); }
   });
   const del = $(".ph-del", el);
   if (del) del.addEventListener("click", () => {
