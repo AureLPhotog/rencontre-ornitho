@@ -201,7 +201,8 @@ function screenTick(cle, id) {
   const t = M.ticks.find((x) => x.cle === cle && x.id === id), l = M.liste.get(cle);
   if (!t || !l) { view.innerHTML = '<p class="empty">Cette coche n\'existe plus.</p>'; return; }
   const e = M.esp.get(t.e) || { n: t.e }, rk = M.rankOf(t);
-  const photos = M.photosFor(t, { first: withPhotos(l) });
+  // the photo of the observation, whatever the list: the same sighting shares its photo in all its lists
+  const photos = M.photosFor(t);
   const twins = t.d ? M.ticks.filter((x) => x !== t && M.sameObs(t, x)) : [];
   view.innerHTML = `<div class="screen">
     <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a>
