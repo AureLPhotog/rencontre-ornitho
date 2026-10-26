@@ -252,14 +252,31 @@ export function buildModel(db) {
   };
   // numbered list whose numbers do not follow the dates: dated ticks are put back in date order
   // in the numbers they already use; an undated tick keeps its number, since nothing says where it goes
+  // numbers back in date order with as few changes as possible: the ticks already in order stay in order (with the
+  // undated ticks around them, whose place in the numbering is all we know of their date); each misplaced tick is put
+  // back after the last tick of its day or before; the numbers in use are reused in that new order.
+  // Within a day, the ticks that have a time (h, from the photo or Faune-France; never shown) go by time,
+  // in the places of the timed ticks; the others keep their place.
   M.renumber = (cle) => {
-    const dated = (db.coches[cle] || []).filter((t) => t.d && t.n);
-    const slots = dated.map((t) => t.n).sort((a, b) => a - b);
-    // within a day, the ticks that have a time (h, from the photo or Faune-France; never shown) go by time,
-    // in the places of the timed ticks; the others keep their place
-    const order = [], days = new Map();
-    dated.slice().sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n).forEach((t) => { if (!days.has(t.d)) days.set(t.d, []); days.get(t.d).push(t); });
-    for (const g of days.values()) { const timed = g.filter((t) => t.h).sort((a, b) => a.h.localeCompare(b.h) || a.n - b.n); let i = 0; g.forEach((t) => order.push(t.h ? timed[i++] : t)); }
+    const seq = (db.coches[cle] || []).filter((t) => t.n).sort((a, b) => a.n - b.n);
+    const slots = seq.map((t) => t.n);
+    const dated = seq.filter((t) => t.d);
+    // longest run of dated ticks already in date order (non-decreasing), kept in place
+    const tail = [], prevIx = new Array(dated.length), tailIx = [];
+    dated.forEach((t, i) => {
+      let lo = 0, hi = tail.length; while (lo < hi) { const m = (lo + hi) >> 1; if (tail[m] <= t.d) lo = m + 1; else hi = m; }
+      tail[lo] = t.d; tailIx[lo] = i; prevIx[i] = lo ? tailIx[lo - 1] : -1;
+    });
+    const keep = new Set(); for (let i = tail.length ? tailIx[tail.length - 1] : -1; i >= 0; i = prevIx[i]) keep.add(dated[i]);
+    const order = seq.filter((t) => !t.d || keep.has(t));
+    dated.filter((t) => !keep.has(t)).sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n).forEach((t) => {
+      let at = 0; order.forEach((x, i) => { if (x.d && x.d <= t.d) at = i + 1; });
+      if (!order.some((x) => x.d && x.d <= t.d)) { const first = order.findIndex((x) => x.d); at = first < 0 ? order.length : first; }
+      order.splice(at, 0, t);
+    });
+    // within a day: timed ticks by time, in the places of the timed ticks
+    const days = new Map(); order.forEach((t, i) => { if (t.d && t.h) { if (!days.has(t.d)) days.set(t.d, []); days.get(t.d).push(i); } });
+    for (const ix of days.values()) { const ts = ix.map((i) => order[i]).sort((a, b) => a.h.localeCompare(b.h) || a.n - b.n); ix.forEach((i, k) => { order[i] = ts[k]; }); }
     return order.map((t, i) => ({ t: { ...t, cle }, to: slots[i] })).filter((x) => x.t.n !== x.to);
   };
   return M;
