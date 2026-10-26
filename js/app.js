@@ -415,7 +415,7 @@ function screenMore() {
     <a href="#/import"><b>Importer</b><small>Faune-France, eBird ou cocheurs : compléter dates, lieux et espèces</small></a>
     <button type="button" id="xx"><b>Exporter en Excel</b><small>Toutes les coches, les espèces et les listes</small></button>
     <button type="button" id="xj"><b>Sauvegarde complète (.json)</b><small>Copie exacte de la base</small></button>
-    <a href="#/reglages"><b>Réglages</b><small>Clé d'accès GitHub, dépôt, cache</small></a>
+    <a href="#/reglages"><b>Réglages</b><small>Clé d'accès GitHub, clé Flickr, dépôt, cache</small></a>
   </nav><p class="cap">La base est dans le dépôt privé <a href="https://github.com/${esc(S.cfg.owner)}/${esc(S.cfg.repo)}/commits/${esc(S.cfg.branch)}" target="_blank" rel="noopener">${esc(S.cfg.owner)}/${esc(S.cfg.repo)}</a> : chaque modification y est enregistrée, avec son historique.</p></div>`;
   $("#xx").addEventListener("click", () => exportXlsx(M).catch((e) => toast(e.message, "error")));
   $("#xj").addEventListener("click", () => exportJson(S.db));
