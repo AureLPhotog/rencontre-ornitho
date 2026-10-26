@@ -104,9 +104,11 @@ document.addEventListener("click", (ev) => {
   box.addEventListener("click", close); document.addEventListener("keydown", esc_); document.body.appendChild(box);
 });
 
-function row(t, { rank, showList = false, from } = {}) {
+// in a list, a row opens that tick (toTick); elsewhere it opens the species page
+function row(t, { rank, showList = false, from, toTick = false } = {}) {
   const place = t.l && t.l !== t.p ? t.l : "";
-  return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${nameLink(t.e, from)}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
+  const name = toTick ? `<a href="#/coche/${esc(t.cle)}/${esc(t.id)}">${esc(M.name(t.e))}</a>${qTag((M.esp.get(t.e) || {}).q)}${t.ph ? ' <span class="cap" title="Photo de la coche">📷</span>' : ""}` : nameLink(t.e, from);
+  return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${name}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
 }
 
 // ---------- home: the lists ----------
@@ -168,11 +170,11 @@ function screenList(cle) {
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
-    <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle })).join("")}</ul>
+    <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
   // the species page follows this order (and this search) with its arrows and swipes
-  const filter = () => { const k = norm(q.value); rows.forEach((li, i) => { li.hidden = !!k && !M.matches(k, li.textContent) && !M.matchesSp(k, sorted[i].e); }); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: sorted.filter((_, i) => !rows[i].hidden).map((t) => t.e) } }); };
+  const filter = () => { const k = norm(q.value); rows.forEach((li, i) => { li.hidden = !!k && !M.matches(k, li.textContent) && !M.matchesSp(k, sorted[i].e); }); const shown = sorted.filter((_, i) => !rows[i].hidden); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: shown.map((t) => t.e), refs: shown.map((t) => t.cle + "/" + t.id) } }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
 }
@@ -203,6 +205,18 @@ function screenTick(cle, id) {
   if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
   photoBox($("#tk-ph"), { kind: "tick", cle, tick: t }, phSlider);
   wirePhotos(view);
+  // previous / next tick of the list it was opened from (arrows, swipe, keyboard)
+  const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
+  if (at < 0) return;
+  const prev = at > 0 ? nav.refs[at - 1] : null, next = at < nav.refs.length - 1 ? nav.refs[at + 1] : null;
+  const nm = (ref) => { const [c, i] = ref.split("/"); const x = M.ticks.find((y) => y.cle === c && y.id === i); return x ? M.name(x.e) : ""; };
+  view.firstElementChild.insertAdjacentHTML("afterbegin", `<nav class="spnav" aria-label="Coches de la liste">${prev ? `<a class="spnav-a" href="#/coche/${prev}" data-nav="prev">‹<span>${esc(nm(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.refs.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="#/coche/${next}" data-nav="next"><span>${esc(nm(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>`);
+  const move = (ref) => { if (ref) { location.replace("#/coche/" + ref); scrollTo(0, 0); } };
+  $$("[data-nav]", view).forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); move(a.dataset.nav === "prev" ? prev : next); }));
+  let x0 = null, y0 = null; const scr = view.firstElementChild;
+  scr.addEventListener("touchstart", (ev) => { if (ev.target.closest(".minimap, input, textarea, .phs, .phbox")) { x0 = null; return; } x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY; }, { passive: true });
+  scr.addEventListener("touchend", (ev) => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0, dy = ev.changedTouches[0].clientY - y0; x0 = null; if (Math.abs(dx) > 70 && Math.abs(dy) < 50) move(dx < 0 ? next : prev); }, { passive: true });
+  onKey = (ev) => { if (ev.target.closest("input, textarea, select")) return; if (ev.key === "ArrowLeft") move(prev); if (ev.key === "ArrowRight") move(next); };
 }
 
 // ---------- one list on a map ----------
@@ -309,9 +323,9 @@ function screenYear(y) {
     ${dated.length ? `<div class="stats"><div class="stat"><span class="k">Jours de coche</span><span class="v">${byDay.size}<small> / ${elapsed} j</small></span><span class="s">${Math.round((byDay.size / elapsed) * 100)} % des jours ${past ? "de l'année" : "écoulés"}</span></div>
       <div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestDay[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestDay[0]))}</span></div>
       <div class="stat"><span class="k">Dernière coche</span><span class="v">${esc(M.name(last.e))}</span><span class="s">n°${last.rank} · ${esc(fmtDay(last.d, false))}</span></div></div>` : ""}
-    ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank, from: "yl" + year })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
+    ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank, from: "yl" + year, toTick: true })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
   </div>`;
-  saveUI({ nav: { key: "yl" + year, nom: `YL ${year}`, ids: [...groups].flatMap(([, ts]) => ts.map((t) => t.e)) } });
+  saveUI({ nav: { key: "yl" + year, nom: `YL ${year}`, ids: [...groups].flatMap(([, ts]) => ts.map((t) => t.e)), refs: [...groups].flatMap(([, ts]) => ts.map((t) => t.cle + "/" + t.id)) } });
   $$("[data-scope]").forEach((b) => b.addEventListener("click", () => { saveUI({ scope: b.dataset.scope }); screenYear(year); }));
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
