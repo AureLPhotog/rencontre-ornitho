@@ -548,7 +548,7 @@ function taskAct(id, a) {
 // the chip of the category being read is highlighted, and kept visible in the bar
 let tdLast = -1;
 function tdSpy() {
-  const nav = $("#tdnav"); if (!nav) return;
+  const nav = $("#tdnav"); if (!nav || nav.dataset.tabs) return;
   const secs = $$(".screen > section[id^='td-']", view); let cur = 0;
   secs.forEach((s, i) => { if (s.getBoundingClientRect().top < 180) cur = i; });
   if (cur === tdLast && nav.querySelector(".on")) return; tdLast = cur;
@@ -620,15 +620,24 @@ function screenTodo() {
     S.apply(x.ts.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { nph: true } })), `Pas de photo : ${M.name(x.main.e)} (${fmtShort(x.main.d)})`);
     toast("Noté : pas de photo pour cette coche.");
   }));
-  $("#tdnav").innerHTML = secs.map((sec, i) => {
-    sec.id = "td-" + i;
+  // one category at a time: the chips are tabs (the ones with nothing left are hidden), the open one is remembered
+  const info = secs.map((sec) => {
     const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();
-    const n = +sec.dataset.n || 0;
     const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu").replace(/^Première donnée de la zone$/, "Première de la zone");
-    return `<a href="#" data-td="${i}" class="${n ? "" : "zero"}" title="${esc(title)}">${esc(short)}<b>${n}</b></a>`;
-  }).join("");
-  $$("[data-td]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); $("#td-" + a.dataset.td).scrollIntoView({ behavior: "smooth", block: "start" }); }));
-  tdSpy();
+    return { sec, title, short, n: +sec.dataset.n || 0 };
+  });
+  const live = info.filter((x) => x.n), done = info.length - live.length;
+  const cur = live.find((x) => x.title === UI.tdTab) || live[0];
+  info.forEach((x) => { x.sec.hidden = x !== cur; });
+  const nav = $("#tdnav"); nav.dataset.tabs = "1";
+  nav.innerHTML = live.map((x, i) => `<a href="#" data-td="${i}" class="${x === cur ? "on" : ""}" title="${esc(x.title)}">${esc(x.short)}<b>${x.n}</b></a>`).join("")
+    + (done ? `<span class="td-done">✓ ${done} ${plural(done, "catégorie")} à jour</span>` : "") + (live.length ? "" : '<span class="td-done">Tout est à jour 🎉</span>');
+  $$("[data-td]", nav).forEach((a) => a.addEventListener("click", (ev) => {
+    ev.preventDefault(); const x = live[+a.dataset.td]; saveUI({ tdTab: x.title });
+    info.forEach((y) => { y.sec.hidden = y !== x; }); $$("[data-td]", nav).forEach((b) => b.classList.toggle("on", b === a));
+    const top = $(".tdbar").getBoundingClientRect().top; if (top < 0 || scrollY > 0) scrollTo({ top: 0 });
+  }));
+  const onChip = nav.querySelector(".on"); if (onChip) nav.scrollLeft = Math.max(0, onChip.offsetLeft - 16);
   $$("[data-act]").forEach((b) => b.addEventListener("click", () => { const [id, a] = b.dataset.act.split(":"); taskAct(id, a); }));
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
