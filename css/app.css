@@ -293,3 +293,4 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .ylsort{display:flex;justify-content:space-between;align-items:center;gap:10px}.ylsort h3{margin:0}
 .qtag.best{border-style:dashed}
 .tkq{margin-top:4px}
+.tools.lt{flex-wrap:nowrap}.tools.lt .field{flex:1 1 auto;min-width:0}.tools.lt .seg{flex:none}.dir-c{flex:none;width:40px;padding:0;font-size:18px;justify-content:center}

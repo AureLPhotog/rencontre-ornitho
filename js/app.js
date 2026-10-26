@@ -166,7 +166,7 @@ function screenHome() {
 // ---------- one list ----------
 const SORT_ASC = { n: true, nom: true, date: false, yl: false };
 function sortAsc(k) { const d = (UI.dirs || {})[k]; return d ? d === "asc" : SORT_ASC[k]; }
-function dirBtn(asc) { return `<button type="button" class="btn dirbtn" id="dir" title="Inverser l'ordre">${asc ? "↑ Croissant" : "↓ Décroissant"}</button>`; }
+function dirBtn(asc, compact) { const t = asc ? "Ordre croissant" : "Ordre décroissant"; return `<button type="button" class="btn dirbtn${compact ? " dir-c" : ""}" id="dir" title="${t} (toucher pour inverser)" aria-label="${t} (toucher pour inverser)">${compact ? (asc ? "↑" : "↓") : asc ? "↑ Croissant" : "↓ Décroissant"}</button>`; }
 function screenList(cle) {
   const l = M.liste.get(cle); if (!l) return go("#/");
   const f = new URLSearchParams(location.hash.split("?")[1] || "").get("f");
@@ -183,8 +183,8 @@ function screenList(cle) {
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
-    <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
-      <div class="seg" role="group" aria-label="Trier">${opts.map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc)}</div>
+    <div class="tools lt"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
+      <div class="seg" role="group" aria-label="Trier">${opts.map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc, true)}</div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
