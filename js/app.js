@@ -164,18 +164,25 @@ function screenHome() {
 }
 
 // ---------- one list ----------
+const SORT_ASC = { n: true, nom: true, date: false, yl: false };
+function sortAsc(k) { const d = (UI.dirs || {})[k]; return d ? d === "asc" : SORT_ASC[k]; }
+function dirBtn(asc) { return `<button type="button" class="btn dirbtn" id="dir" title="Inverser l'ordre">${asc ? "↑ Croissant" : "↓ Décroissant"}</button>`; }
 function screenList(cle) {
   const l = M.liste.get(cle); if (!l) return go("#/");
   const f = new URLSearchParams(location.hash.split("?")[1] || "").get("f");
   let items = M.speciesOf(cle);
   if (cle === VU && f) { const v = M.vuOpen(); const keep = new Set((f === "fr" ? v.fr : v.ab).map((t) => t.e)); items = items.filter((t) => keep.has(t.e)); }
   const sort = UI.sort || (l.numerotee ? "n" : "date");
-  const sorted = items.slice().sort(sort === "nom" ? (a, b) => M.name(a.e).localeCompare(M.name(b.e), "fr") : sort === "n" ? (a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) : (a, b) => (b.d || "").localeCompare(a.d || ""));
+  // each sort keeps its own direction (by default: n° and name ascending, date newest first); missing values stay at the end
+  const asc = sortAsc(sort), sg = asc ? 1 : -1;
+  const sorted = items.slice().sort(sort === "nom" ? (a, b) => sg * M.name(a.e).localeCompare(M.name(b.e), "fr")
+    : sort === "n" ? (a, b) => { const x = M.rankOf(a), y = M.rankOf(b); return !x || !y ? (!x) - (!y) : sg * (x - y); }
+    : (a, b) => !a.d || !b.d ? (!a.d) - (!b.d) : sg * a.d.localeCompare(b.d));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
     <div class="tools"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
-      <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div></div>
+      <div class="seg" role="group" aria-label="Trier">${[["n", "N°"], ["date", "Date"], ["nom", "Nom"]].map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc)}</div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
   </div>`;
   const q = $("#q"), rows = $$("#rows li");
@@ -183,6 +190,7 @@ function screenList(cle) {
   const filter = () => { const k = norm(q.value); rows.forEach((li, i) => { li.hidden = !!k && !M.matches(k, li.textContent) && !M.matchesSp(k, sorted[i].e); }); const shown = sorted.filter((_, i) => !rows[i].hidden); saveUI({ q: q.value, nav: { key: cle, nom: l.nom, ids: shown.map((t) => t.e), refs: shown.map((t) => t.cle + "/" + t.id) } }); };
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
+  $("#dir").addEventListener("click", () => { saveUI({ dirs: { ...(UI.dirs || {}), [sort]: asc ? "desc" : "asc" } }); screenList(cle); });
 }
 
 // ---------- one tick ----------
@@ -318,10 +326,11 @@ function screenYear(y) {
   const bestDay = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
   const elapsed = past ? daysIn(year) : doy(todayIso()) + 1;
   const last = dated.slice().sort((a, b) => b.d.localeCompare(a.d) || (b.rank - a.rank))[0];
-  const groups = new Map(); [...list.filter((t) => t.d).reverse(), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  const ylAsc = sortAsc("yl"), datedL = list.filter((t) => t.d);
+  const groups = new Map(); [...(ylAsc ? datedL : datedL.slice().reverse()), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   view.innerHTML = `<div class="screen keep-scroll">
     <div class="tools"><select class="field" id="yl-year" aria-label="Année" style="max-width:120px">${years.slice().reverse().map((x) => `<option ${x === year ? "selected" : ""}>${x}</option>`).join("")}</select>
-      <div class="seg" role="group" aria-label="Portée"><button type="button" data-scope="fr" aria-pressed="${scope === "fr"}">France</button><button type="button" data-scope="monde" aria-pressed="${scope === "monde"}">France et étranger</button></div></div>
+      <div class="seg" role="group" aria-label="Portée"><button type="button" data-scope="fr" aria-pressed="${scope === "fr"}">France</button><button type="button" data-scope="monde" aria-pressed="${scope === "monde"}">France et étranger</button></div></div>${dirBtn(ylAsc)}</div>
     <div class="hero"><b>${past ? list.length : cur}</b><div><h1>Year list ${year}${scope === "fr" ? " · France" : ""}</h1>
       <p>${past ? `Total de l'année.${abroadTxt}<br><strong>Au ${esc(dateLbl)} ${year} : ${cur} espèces</strong>, ${rank === 1 ? "ta meilleure year list à cette date" : `${rank}e sur ${rows.length} années à cette date`}.` : `<strong>${head} au ${esc(dateLbl)}</strong>, sur ${rows.length} années.${abroadTxt}`}${lines.length ? "<br>" + lines.join("<br>") : ""}</p></div></div>
     ${yearChart(year, others, curPts, endX, todayX)}
@@ -331,10 +340,12 @@ function screenYear(y) {
     ${dated.length ? `<div class="stats"><div class="stat"><span class="k">Jours de coche</span><span class="v">${byDay.size}<small> / ${elapsed} j</small></span><span class="s">${Math.round((byDay.size / elapsed) * 100)} % des jours ${past ? "de l'année" : "écoulés"}</span></div>
       <div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestDay[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestDay[0]))}</span></div>
       <div class="stat"><span class="k">Dernière coche</span><span class="v">${esc(M.name(last.e))}</span><span class="s">n°${last.rank} · ${esc(fmtDay(last.d, false))}</span></div></div>` : ""}
+    ${groups.size > 1 ? `<div class="ylsort"><h3 class="minor">Coches</h3>${dirBtn(ylAsc)}</div>` : ""}
     ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank, from: "yl" + year, toTick: true })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
   </div>`;
   saveUI({ nav: { key: "yl" + year, nom: `YL ${year}`, ids: [...groups].flatMap(([, ts]) => ts.map((t) => t.e)), refs: [...groups].flatMap(([, ts]) => ts.map((t) => t.cle + "/" + t.id)) } });
   $$("[data-scope]").forEach((b) => b.addEventListener("click", () => { saveUI({ scope: b.dataset.scope }); screenYear(year); }));
+  $("#dir")?.addEventListener("click", () => { saveUI({ dirs: { ...(UI.dirs || {}), yl: ylAsc ? "desc" : "asc" } }); screenYear(year); });
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
 
@@ -694,7 +705,7 @@ function screenSettings() {
       <div class="row3"><label>Compte<input class="field" id="own" value="${esc(c.owner)}"></label><label>Dépôt<input class="field" id="rep" value="${esc(c.repo)}"></label><label>Branche<input class="field" id="br" value="${esc(c.branch)}"></label></div>
       <div class="row"><button class="btn btn-primary" type="submit">Enregistrer et tester</button></div><p class="msg" id="cmsg"></p>
     </form>
-    <section class="panel"><span class="lab">Thème</span><div class="seg" id="thm"><button class="btn" type="button" data-t="auto">Auto</button><button class="btn" type="button" data-t="light">☀ Clair</button><button class="btn" type="button" data-t="dark">☾ Sombre</button></div></section>
+    <section class="panel"><span class="lab">Thème</span><div class="seg wide3" id="thm"><button class="btn" type="button" data-t="auto">Auto</button><button class="btn" type="button" data-t="light">☀ Clair</button><button class="btn" type="button" data-t="dark">☾ Sombre</button></div></section>
     ${!first ? `<form class="panel" id="flk"><label>Clé API Flickr <small>(pour ajouter une photo par un lien Flickr)</small><input class="field" id="flkey" autocomplete="off" placeholder="32 caractères" value="${esc(flickrKey())}"></label>
       <details><summary>Obtenir la clé (gratuite)</summary><ol class="steps"><li>Ouvre <a href="https://www.flickr.com/services/apps/create/apply/" target="_blank" rel="noopener">flickr.com › App Garden › Create an app</a> et choisis « non-commercial ».</li><li>Nom : « Rencontre Ornitho », une phrase de description, valide.</li><li>Copie la « Key » (pas le « Secret ») et colle-la ci-dessus.</li></ol></details>
       <div class="row"><button class="btn" type="submit">Enregistrer la clé Flickr</button></div><p class="cap">Elle reste sur cet appareil.</p></form>
