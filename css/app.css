@@ -290,7 +290,11 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 
 .tp{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 14px 10px}.tp a{display:flex;align-items:center;gap:10px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px;text-decoration:none;color:var(--ink)}
 .tp b{font-family:var(--f-data);font-size:18px;color:var(--rufous)}.tp span{font-size:14px;font-weight:600;line-height:1.2}.tp small{display:block;font-weight:400;font-size:11.5px;color:var(--muted)}
-.ylsort{display:flex;justify-content:space-between;align-items:center;gap:10px}.ylsort h3{margin:0}
 .qtag.best{border-style:dashed}
 .tkq{margin-top:4px}
 .tools.lt{flex-wrap:nowrap}.tools.lt .field{flex:1 1 auto;min-width:0}.tools.lt .seg{flex:none}.dir-c{flex:none;width:40px;padding:0;font-size:18px;justify-content:center}
+/* logo: light and dark versions, following the app theme */
+:root{--lg-bg:#EAF5F8;--lg-wing:#0A7895;--lg-tick:#FFFFFF}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--lg-bg:#173A44;--lg-wing:#5CC2DD;--lg-tick:#0E1A17}}
+:root[data-theme=dark]{--lg-bg:#173A44;--lg-wing:#5CC2DD;--lg-tick:#0E1A17}
+.logo .lg-bg{fill:var(--lg-bg)}.logo .lg-wing{fill:var(--lg-wing)}.logo .lg-tick{stroke:var(--lg-tick)}

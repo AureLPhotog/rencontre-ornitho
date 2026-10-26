@@ -164,7 +164,7 @@ function screenHome() {
 }
 
 // ---------- one list ----------
-const SORT_ASC = { n: true, nom: true, date: false, yl: false };
+const SORT_ASC = { n: true, nom: true, date: false };
 function sortAsc(k) { const d = (UI.dirs || {})[k]; return d ? d === "asc" : SORT_ASC[k]; }
 function dirBtn(asc, compact) { const t = asc ? "Ordre croissant" : "Ordre décroissant"; return `<button type="button" class="btn dirbtn${compact ? " dir-c" : ""}" id="dir" title="${t} (toucher pour inverser)" aria-label="${t} (toucher pour inverser)">${compact ? (asc ? "↑" : "↓") : asc ? "↑ Croissant" : "↓ Décroissant"}</button>`; }
 function screenList(cle) {
@@ -330,11 +330,10 @@ function screenYear(y) {
   const bestDay = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
   const elapsed = past ? daysIn(year) : doy(todayIso()) + 1;
   const last = dated.slice().sort((a, b) => b.d.localeCompare(a.d) || (b.rank - a.rank))[0];
-  const ylAsc = sortAsc("yl"), datedL = list.filter((t) => t.d);
-  const groups = new Map(); [...(ylAsc ? datedL : datedL.slice().reverse()), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  const groups = new Map(); [...list.filter((t) => t.d).reverse(), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   view.innerHTML = `<div class="screen keep-scroll">
     <div class="tools"><select class="field" id="yl-year" aria-label="Année" style="max-width:120px">${years.slice().reverse().map((x) => `<option ${x === year ? "selected" : ""}>${x}</option>`).join("")}</select>
-      <div class="seg" role="group" aria-label="Portée"><button type="button" data-scope="fr" aria-pressed="${scope === "fr"}">France</button><button type="button" data-scope="monde" aria-pressed="${scope === "monde"}">France et étranger</button></div></div>${dirBtn(ylAsc)}</div>
+      <div class="seg" role="group" aria-label="Portée"><button type="button" data-scope="fr" aria-pressed="${scope === "fr"}">France</button><button type="button" data-scope="monde" aria-pressed="${scope === "monde"}">France et étranger</button></div></div>
     <div class="hero"><b>${past ? list.length : cur}</b><div><h1>Year list ${year}${scope === "fr" ? " · France" : ""}</h1>
       <p>${past ? `Total de l'année.${abroadTxt}<br><strong>Au ${esc(dateLbl)} ${year} : ${cur} espèces</strong>, ${rank === 1 ? "ta meilleure year list à cette date" : `${rank}e sur ${rows.length} années à cette date`}.` : `<strong>${head} au ${esc(dateLbl)}</strong>, sur ${rows.length} années.${abroadTxt}`}${lines.length ? "<br>" + lines.join("<br>") : ""}</p></div></div>
     ${yearChart(year, others, curPts, endX, todayX)}
@@ -344,12 +343,10 @@ function screenYear(y) {
     ${dated.length ? `<div class="stats"><div class="stat"><span class="k">Jours de coche</span><span class="v">${byDay.size}<small> / ${elapsed} j</small></span><span class="s">${Math.round((byDay.size / elapsed) * 100)} % des jours ${past ? "de l'année" : "écoulés"}</span></div>
       <div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestDay[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestDay[0]))}</span></div>
       <div class="stat"><span class="k">Dernière coche</span><span class="v">${esc(M.name(last.e))}</span><span class="s">n°${last.rank} · ${esc(fmtDay(last.d, false))}</span></div></div>` : ""}
-    ${groups.size > 1 ? `<div class="ylsort"><h3 class="minor">Coches</h3>${dirBtn(ylAsc)}</div>` : ""}
     ${[...groups].map(([d, ts]) => `<section class="day"><h3 class="minor">${d ? esc(fmtDay(d)) : "Date inconnue"} · ${ts.length}</h3><ul class="ticks">${ts.map((t) => row(t, { rank: t.rank, from: "yl" + year, toTick: true })).join("")}</ul></section>`).join("") || `<p class="empty">Aucune coche pour ${year}.</p>`}
   </div>`;
   saveUI({ nav: { key: "yl" + year, nom: `YL ${year}`, ids: [...groups].flatMap(([, ts]) => ts.map((t) => t.e)), refs: [...groups].flatMap(([, ts]) => ts.map((t) => t.cle + "/" + t.id)) } });
   $$("[data-scope]").forEach((b) => b.addEventListener("click", () => { saveUI({ scope: b.dataset.scope }); screenYear(year); }));
-  $("#dir")?.addEventListener("click", () => { saveUI({ dirs: { ...(UI.dirs || {}), yl: ylAsc ? "desc" : "asc" } }); screenYear(year); });
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
 
