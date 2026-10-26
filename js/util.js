@@ -20,7 +20,8 @@ export function fmtDay(iso, withYear = true) {
 // where a tick's date (sd) or place (sl) comes from
 export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées", photo: "date de la photo (EXIF)", tel: "GPS d'une photo téléphone (approximatif)" };
 export const srcName = (k) => SOURCES[k] || (k ? k : "source inconnue");
-// photo quality, per species (the best photo you have of it, wherever it was taken), best first
+// photo label (étiquette), one per photo: the photo of a tick (tick.q, shared by the same observation in all its lists)
+// and the best-of photo of a species (espece.q); best first
 export const QUALITES = [
   { v: "Photo déjà masterclass", court: "Masterclass", c: "#7A3E9D" },
   { v: "Très bonne photo", court: "Très bonne", c: "#2E7D4F" },
@@ -29,7 +30,8 @@ export const QUALITES = [
   { v: "Photo à refaire", court: "À refaire", c: "#C2410C" },
 ];
 export const qualite = (q) => QUALITES.find((x) => x.v === q) || null; // « à cocher » is a status, not a quality
-export const qTag = (q) => { const x = qualite(q); return x ? `<span class="qtag" style="--c:${x.c}" title="${x.v}"><span aria-hidden="true">📷 </span>${x.court}</span>` : ""; };
+// kind "best": the label of the best-of photo (★), else the label of this photo (📷)
+export const qTag = (q, kind) => { const x = qualite(q); return x ? `<span class="qtag${kind === "best" ? " best" : ""}" style="--c:${x.c}" title="${kind === "best" ? "Photo best of : " : ""}${x.v}"><span aria-hidden="true">${kind === "best" ? "★" : "📷"} </span>${x.court}</span>` : ""; };
 export const fmtShort = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 export const isFrance = (p) => !p || norm(p) === "france";
 

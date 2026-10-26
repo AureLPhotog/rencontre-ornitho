@@ -107,7 +107,7 @@ export function renderAdd(view, q) {
       <label>Espèce<div class="combo"><input class="field" id="f-sp" placeholder="Tape quelques lettres…" value="${esc(st.e ? M.name(st.e) : "")}" aria-autocomplete="list" aria-controls="f-sug"><ul id="f-sug" class="sug" role="listbox" hidden></ul></div></label>
       <p class="cap" id="f-known"></p>
       <div class="seg wide" role="group" aria-label="Photo"><button type="button" data-photo="1">Photographiée</button><button type="button" data-photo="0">Vue ou entendue</button></div>
-      <div class="qrow" id="f-qrow"><span class="cap">Qualité photo de l'espèce</span><div class="qpick" role="group" aria-label="Qualité photo">${QUALITES.map((x) => `<button type="button" class="qtag" style="--c:${x.c}" data-fq="${esc(x.v)}">${x.court}</button>`).join("")}</div></div>
+      <div class="qrow" id="f-qrow"><span class="cap">Étiquette de la photo de la coche</span><div class="qpick" role="group" aria-label="Étiquette de la photo">${QUALITES.map((x) => `<button type="button" class="qtag" style="--c:${x.c}" data-fq="${esc(x.v)}">${x.court}</button>`).join("")}</div></div>
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d)}" max="${todayIso()}"></label>
         <label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p)}"></label></div>
       <datalist id="dl-pays">${["France", ...countries()].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
@@ -191,7 +191,7 @@ export function renderAdd(view, q) {
   function refresh() {
     $$("[data-photo]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.photo === "1") === st.photo)));
     // quality: the species' own, until another one is picked here
-    const q = st.q !== undefined && st.q !== null ? st.q : st.q === null ? null : (M.esp.get(st.e) || {}).q;
+    const q = st.q || null;
     $("#f-qrow").hidden = !st.photo;
     $$("[data-fq]").forEach((b) => { const on = b.dataset.fq === q; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
     const fr = isFrance(st.p);
@@ -228,6 +228,7 @@ export function renderAdd(view, q) {
       const tick = { id: `${x.cle}-${uid()}`, e: sid };
       if (st.d) tick.d = st.d; if (x.num) tick.n = x.num; if (st.l) tick.l = st.l.trim();
       if (!isFrance(st.p)) tick.p = st.p; if (st.lat != null) { tick.lat = st.lat; tick.lon = st.lon; } if (st.t) tick.t = st.t.trim();
+      if (st.photo && st.q) tick.q = st.q;
       ops.push({ kind: "add-tick", cle: x.cle, tick });
     }
     if (st.e && st.d && (st.l || st.lat != null)) {
@@ -235,7 +236,6 @@ export function renderAdd(view, q) {
       M.ticks.filter((t) => t.e === st.e && t.d === st.d && M.sameObs(t, { e: st.e, d: st.d, cle: "", l: place.l, p: place.p || undefined }) && ((t.l || null) !== place.l || (t.lat ?? null) !== place.lat || (t.lon ?? null) !== place.lon))
         .forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: place }));
     }
-    if (st.photo && st.q !== undefined && st.q !== ((M.esp.get(sid) || {}).q || null)) ops.push({ kind: "set-espece", id: sid, patch: { q: st.q } });
     if (st.l && st.lat != null) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon, ...(isFrance(st.p) ? {} : { p: st.p }) } });
     const name = sid === st.e ? M.name(sid) : st.newName;
     const where = chosen.map((x) => (M.liste.get(x.cle) || { nom: `YL ${x.year}` }).nom).join(", ");

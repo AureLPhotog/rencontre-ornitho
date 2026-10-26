@@ -110,24 +110,29 @@ export function buildModel(db) {
   M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
   // every photo of a species for its main page: the best first (else the lifer photo), then the first photos,
   // then the photos added to ticks of the lists
+  // labels: the best-of photo's (espece.q), else the lifer photo's (the lifer tick's q)
+  M.bestQ = (sid) => (M.esp.get(sid) || {}).q || null;
+  M.liferQ = (sid) => { const t = M.ticks.find((x) => x.e === sid && x.cle === LIFERS); return (t && t.q) || null; };
+  M.spQ = (sid) => M.bestQ(sid) || M.liferQ(sid);
   M.allPhotos = (sid) => {
-    const out = [], seen = new Set(), add = (p, label) => { const k = p.img || p.url; if (!k || seen.has(k)) return; seen.add(k); out.push({ ...p, label }); };
+    const out = [], seen = new Set(), add = (p, label, q) => { const k = p.img || p.url; if (!k || seen.has(k)) return; seen.add(k); out.push({ ...p, label, ...(q ? { q } : {}) }); };
     const ticks = M.ticks.filter((t) => t.e === sid);
     const lif = ticks.find((t) => t.cle === LIFERS), firsts = M.firstPhotos(sid);
     const lifPhoto = lif && (lif.ph || firsts.find((p) => p.d === lif.d));
     const best = M.bestPhoto(sid);
-    if (best) add(best, "Meilleure photo");
-    if (lifPhoto) add(lifPhoto, "Photo lifer");
+    if (best) add(best, "Meilleure photo", M.bestQ(sid));
+    if (lifPhoto) add(lifPhoto, "Photo lifer", lif.q);
     firsts.forEach((p) => add(p, firsts.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo"));
-    ticks.filter((t) => t.ph).forEach((t) => add(t.ph, `Photo de la coche · ${(M.liste.get(t.cle) || { nom: t.cle }).nom}`));
+    ticks.filter((t) => t.ph).forEach((t) => add(t.ph, `Photo de la coche · ${(M.liste.get(t.cle) || { nom: t.cle }).nom}`, t.q));
     return out;
   };
   // what to show for a tick (map, to-do): only the photo of that very day, never one of another day or place,
   // and never the best photo (that one belongs to the species page)
   // a photo you added to the tick itself (t.ph) comes first: it belongs to that list only
   M.photosFor = (t, { first = true } = {}) => {
-    if (t.ph) return [{ ...t.ph, label: "Photo de la coche" }];
-    const same = first ? M.firstPhotos(t.e).find((x) => x.d === t.d) : null; return same ? [{ ...same, label: "Photo de la coche" }] : [];
+    const q = t.q ? { q: t.q } : {};
+    if (t.ph) return [{ ...t.ph, label: "Photo de la coche", ...q }];
+    const same = first ? M.firstPhotos(t.e).find((x) => x.d === t.d) : null; return same ? [{ ...same, label: "Photo de la coche", ...q }] : [];
   };
   // a species by any of its names: French name, other names, Latin names
   M.matchesSp = (k, sid) => !k || (M.keysOf.get(sid) || []).some((key) => M.matches(k, key));

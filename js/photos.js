@@ -134,9 +134,9 @@ export function photoBox(el, where, phSlider) {
       catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
     });
   };
-  const store_ = (ph) => {
+  const store_ = (ph, q) => {
     if (where.kind === "tick") setObs(ph, `Photo de la coche : ${M.name(sid)} (${obs().map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`);
-    else S.apply({ kind: "set-espece", id: sid, patch: { best: ph } }, `Meilleure photo : ${M.name(sid)}`);
+    else S.apply({ kind: "set-espece", id: sid, patch: q ? { best: ph, q } : { best: ph } }, `Meilleure photo : ${M.name(sid)}${q ? " (étiquette " + q + ")" : ""}`);
     toast("Photo enregistrée."); again();
   };
   // draw the box again with what the base now holds
@@ -183,8 +183,8 @@ export function photoBox(el, where, phSlider) {
     const mine = M.allPhotos(sid).filter((p) => !cur || (p.img || p.url) !== (cur.img || cur.url));
     el.querySelectorAll(".ph-pk").forEach((b) => b.addEventListener("click", () => {
       const p = mine[+b.dataset.i]; if (!p) return;
-      const { label, ...ph } = p; // the label belongs to where it was shown, not to the photo
-      store_(ph);
+      const { label, q, ...ph } = p; // the caption belongs to where it was shown, not to the photo
+      store_(ph, q);
     }));
   }
   const del = $(".ph-del", el);
