@@ -263,7 +263,22 @@ export function renderEdit(view, cle, id) {
       ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} : la date et le lieu y changent aussi</label>` : ""}
       <div class="row"><button class="btn btn-primary btn-lg" type="submit">Enregistrer</button><a class="btn" href="javascript:history.back()">Annuler</a><button class="btn btn-danger" type="button" id="f-del">Supprimer</button></div>
     </form></div>`;
-  wirePlace(st);
+  // moving the point renames the place, as long as the name was not typed here: a name you already gave
+  // within 300 m, else the IGN lieu-dit and commune (abroad: the commune, and the country)
+  st.autoL = st.l || "";
+  const free = () => !st.l || st.l === st.autoL, setL = (v) => { st.l = st.autoL = v; $("#f-lieu").value = v; };
+  wirePlace(st, async () => {
+    if (st.lat == null) return;
+    const at = { lat: st.lat, lon: st.lon }, own = ownPlaceNear(at);
+    if (own && free()) setL(own);
+    const w = await whereIs(at.lat, at.lon);
+    if (st.lat !== at.lat || st.lon !== at.lon || !w) return; // the point moved meanwhile
+    if (w.fr) { if (!isFrance(st.p)) { st.p = ""; const fp = $("#f-pays"); if (fp) fp.value = ""; } }
+    else if (w.pays) { st.p = w.pays; const fp = $("#f-pays"); if (fp) fp.value = w.pays; }
+    if (own || !free() || !w.commune) return;
+    const com = w.dep ? `${w.commune}, ${w.dep}` : w.commune; setL(w.fr ? `${w.commune}${w.dep ? ` (${w.dep})` : ""}` : w.commune); const auto = st.l;
+    if (w.fr) lieuDit(at.lat, at.lon, w.commune).then((ld) => { if (ld && st.l === auto && st.lat === at.lat && st.lon === at.lon) setL(`${ld.name} (${com})`); });
+  });
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); });
   $("#f-det").addEventListener("input", (e) => { st.t = e.target.value; });
