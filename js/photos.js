@@ -72,10 +72,11 @@ async function flickr(method, params) {
   const q = new URLSearchParams({ method, api_key: key, format: "json", nojsoncallback: "1", ...params });
   let r; try { r = await fetch("https://api.flickr.com/services/rest/?" + q); } catch (_) { throw new Error("Flickr est injoignable (pas de réseau ?)."); }
   const j = await r.json();
-  if (j.stat !== "ok") throw new Error(j.code === 100 ? "La clé Flickr est refusée (Réglages)." : j.code === 1 ? "Photo introuvable sur Flickr (privée ou supprimée ?)." : `Flickr : ${j.message}`);
+  if (j.stat !== "ok") throw new Error(j.code === 100 ? "La clé Flickr est refusée (Réglages)." : j.code === 1 ? "Flickr ne montre pas cette photo : elle est sans doute privée (avec la clé, l'appli ne lit que les photos publiques) ou supprimée." : `Flickr : ${j.message}`);
   return j;
 }
 export async function flickrPhoto(url) {
+  if (/flickr\.com\/gp\//.test(url)) throw new Error("C'est un lien de partage privé (« /gp/ ») : l'appli ne peut pas le lire. Rends la photo publique sur Flickr et colle le lien normal (flickr.com/photos/…/numéro), ou choisis la photo sur l'appareil.");
   const id = flickrId(url); if (!id) throw new Error("Ce n'est pas un lien de photo Flickr.");
   const [info, sizes] = await Promise.all([flickr("flickr.photos.getInfo", { photo_id: id }), flickr("flickr.photos.getSizes", { photo_id: id })]);
   const p = info.photo, all = sizes.sizes.size || [];
