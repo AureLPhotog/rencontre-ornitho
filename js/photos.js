@@ -119,7 +119,12 @@ export function refuse(meta, { sid, tick, cle }) {
     if (l.type === "annee" && !M.sameYearOk({ ...tick, cle }, meta.d)) return `Cette photo a été prise le ${fmtShort(meta.d)} : pas en ${l.annee || cle.slice(2)}, ce n'est pas la photo de cette year list. Refusée.`;
     return null;
   }
-  if (meta.d !== tick.d) return `Cette photo a été prise le ${fmtShort(meta.d)} ; la coche est du ${fmtShort(tick.d)}. Ce n'est pas la photo de la coche : refusée.`;
+  if (meta.d !== tick.d) {
+    const days = Math.round((Date.parse(meta.d) - Date.parse(tick.d)) / 864e5), l = M.liste.get(cle) || {};
+    // close enough (10 days either way): the tick's date can be moved to the photo's, by choice
+    if (Math.abs(days) <= 10 && (l.type !== "annee" || M.sameYearOk({ ...tick, cle }, meta.d))) return { near: days, msg: `Cette photo a été prise le ${fmtShort(meta.d)}, ${Math.abs(days)} jour${Math.abs(days) > 1 ? "s" : ""} ${days > 0 ? "après" : "avant"} la coche (${fmtShort(tick.d)}).` };
+    return `Cette photo a été prise le ${fmtShort(meta.d)} ; la coche est du ${fmtShort(tick.d)}. Ce n'est pas la photo de la coche : refusée.`;
+  }
   return null;
 }
 
@@ -176,6 +181,17 @@ export function photoBox(el, where, phSlider) {
       });
       return;
     }
+    if (why && why.near) {
+      // move the tick (and the same sighting in its other lists) to the photo's day, then add the photo
+      say(why.msg + " Tu peux changer la date de la coche pour celle de la photo.", "bad");
+      box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">Mettre la coche au ${fmtShort(meta.d)} et ajouter la photo (non recommandé)</button></div>`;
+      $("button", box).addEventListener("click", async (ev) => {
+        const b = ev.currentTarget; b.disabled = true; b.textContent = "Envoi…";
+        try { const ph = await save(); moveTo(ph, meta); box.innerHTML = ""; say("Photo enregistrée, coche déplacée.", "ok"); }
+        catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
+      });
+      return;
+    }
     if (why) { box.innerHTML = ""; say(why, "bad"); return; }
     say(`Prise le ${meta.d ? fmtShort(meta.d) + (meta.h ? " à " + meta.h : "") : "?"}${meta.keywords.length ? " · mots-clés : " + meta.keywords.slice(0, 6).join(", ") : ""}`, "ok");
     box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">${cur ? "Remplacer par cette photo" : "Ajouter cette photo"}</button></div>`;
@@ -184,6 +200,18 @@ export function photoBox(el, where, phSlider) {
       try { const ph = await save(); store_(ph, undefined, meta); box.innerHTML = ""; say("Photo enregistrée.", "ok"); }
       catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
     });
+  };
+  const moveTo = (ph, meta) => {
+    // a year list of the sighting that would change year stays as it is (and without this photo)
+    const t = where.tick, all = obs().filter((x) => M.sameYearOk({ ...x, cle: x.cle || where.cle }, ph.d));
+    const ops = all.map((x) => {
+      const cle = x.cle || where.cle, patch = { ph, nph: null, d: ph.d, h: ph.h || null, sh: ph.h ? "photo" : null, vf: null };
+      if (x.lat == null && meta && meta.lat != null) { patch.lat = meta.lat; patch.lon = meta.lon; }
+      return { kind: "set-tick", cle, id: x.id, patch, src: "photo" };
+    });
+    S.apply(ops, `Photo de la coche : ${M.name(sid)} · date de la coche ${fmtShort(t.d)} → ${fmtShort(ph.d)} (date de la photo) (${all.map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`);
+    toast(`Photo enregistrée. Coche déplacée au ${fmtShort(ph.d)}${all.length > 1 ? ` dans ${all.map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")}` : ""}.`);
+    again();
   };
   const store_ = (ph, q, meta) => {
     if (where.kind === "tick" && !where.tick.d && ph.d) {
