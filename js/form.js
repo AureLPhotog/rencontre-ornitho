@@ -261,12 +261,13 @@ export function renderEdit(view, cle, id) {
   const twins = t0.d ? M.ticks.filter((x) => !(x.cle === cle && x.id === id) && M.sameObs({ ...t0, cle }, x)) : [];
   view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1><a class="sp-link" href="#/espece/${esc(t0.e)}">${esc(M.name(t0.e))}</a></h1><p class="cap">Modifier la coche · ${esc(l.nom)}${t0.n ? " · n°" + t0.n : ""}</p>${t0.d || t0.l || t0.lat != null ? `<p class="cap">Source de la date : ${t0.d ? esc(srcName(t0.sd)) : "—"} · du lieu : ${t0.l || t0.lat != null ? esc(srcName(t0.sl)) : "—"}</p>` : ""}</header>
     <form id="ed" class="form">
+      <label>Espèce <small>(pour corriger une erreur d'identification)</small><div class="combo"><input class="field" id="f-sp" autocomplete="off" value="${esc(M.name(t0.e))}" aria-autocomplete="list" aria-controls="f-sug"><ul id="f-sug" class="sug" role="listbox" hidden></ul></div></label>
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d || "")}"></label>${l.numerotee ? `<label>N°<input class="field" type="number" min="1" id="f-n" value="${esc(st.n || "")}"></label>` : `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>`}</div>
       ${l.numerotee ? `<label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p || "")}"></label>` : ""}
       <datalist id="dl-pays">${["France", ...countries()].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
       ${placeFields(st)}
       <label>Détail<input class="field" id="f-det" value="${esc(st.t || "")}"></label>
-      ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")} : la date et le lieu y changent aussi</label>` : ""}
+      ${twins.length ? `<label class="chk"><input type="checkbox" id="f-twins" checked> Même observation dans ${twins.map((x) => esc(M.liste.get(x.cle).nom)).join(", ")}  : la date, le lieu (et l'espèce) y changent aussi</label>` : ""}
       <div class="row"><button class="btn btn-primary btn-lg" type="submit">Enregistrer</button><a class="btn" href="javascript:history.back()">Annuler</a><button class="btn btn-danger" type="button" id="f-del">Supprimer</button></div>
     </form></div>`;
   // moving the point renames the place, as long as the name was not typed here: a name you already gave
@@ -290,6 +291,13 @@ export function renderEdit(view, cle, id) {
   $("#f-date").addEventListener("change", (e) => { st.d = e.target.value; });
   $("#f-pays").addEventListener("change", (e) => { st.p = isFrance(e.target.value) ? "" : cap(e.target.value); });
   $("#f-det").addEventListener("input", (e) => { st.t = e.target.value; });
+  // the species, among the known ones
+  const spIn = $("#f-sp"), sug = $("#f-sug"); let opts = [];
+  const pickSp = (sid) => { st.e = sid; spIn.value = M.name(sid); sug.hidden = true; };
+  spIn.addEventListener("input", () => { st.e = ""; opts = M.search(spIn.value.trim(), 10); sug.innerHTML = opts.map((x, i) => `<li role="option" data-i="${i}"><b>${esc(x.n)}</b><small>${esc(x.sc || "")}</small></li>`).join(""); sug.hidden = !opts.length; });
+  sug.addEventListener("mousedown", (ev) => { const li = ev.target.closest("li"); if (!li) return; ev.preventDefault(); pickSp(opts[+li.dataset.i].id); });
+  spIn.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && opts[0] && !st.e) { ev.preventDefault(); pickSp(opts[0].id); } });
+  spIn.addEventListener("blur", () => setTimeout(() => { sug.hidden = true; if (!st.e) { const one = M.search(spIn.value.trim(), 2); if (one.length && norm(one[0].n) === norm(spIn.value.trim())) pickSp(one[0].id); } }, 150));
   const fn = $("#f-n"); if (fn) fn.addEventListener("change", (e) => { st.n = +e.target.value || null; });
   let confirmed = false;
   $("#ed").addEventListener("submit", async (e) => {
@@ -298,11 +306,18 @@ export function renderEdit(view, cle, id) {
       const w = await whereIs(st.lat, st.lon), out = outsideOf(l, w, st, st.d);
       if (out) { confirmed = true; const b = $("#ed button[type=submit]"); b.textContent = "Enregistrer quand même"; toast(`Attention : ${out}, hors de ${l.nom}.`, "error"); return; }
     }
-    const patch = {}; ["d", "n", "l", "p", "lat", "lon", "t"].forEach((k) => { const a = t0[k] ?? null, b = (typeof st[k] === "string" ? st[k].trim() : st[k]) ?? null; if ((a || null) !== (b || null) && !(a === 0 && b === 0)) patch[k] = b; });
+    if (!st.e) { toast("Choisis l'espèce dans la liste proposée."); spIn.focus(); return; }
+    // another species: not if it is already in this list (or in the lists of the same sighting that follow)
+    if (st.e !== t0.e) {
+      const lists = [cle, ...($("#f-twins") && $("#f-twins").checked ? twins.map((x) => x.cle) : [])];
+      const clash = lists.map((c) => M.tick(st.e, c)).find(Boolean);
+      if (clash) { toast(`${M.name(st.e)} est déjà dans ${M.liste.get(clash.cle).nom}${clash.n ? " (n°" + clash.n + ")" : ""}${clash.d ? " le " + fmtShort(clash.d) : ""} : supprime l'une des deux coches.`, "error"); return; }
+    }
+    const patch = {}; ["e", "d", "n", "l", "p", "lat", "lon", "t"].forEach((k) => { const a = t0[k] ?? null, b = (typeof st[k] === "string" ? st[k].trim() : st[k]) ?? null; if ((a || null) !== (b || null) && !(a === 0 && b === 0)) patch[k] = b; });
     if (!Object.keys(patch).length) { history.back(); return; }
     const ops = [{ kind: "set-tick", cle, id, patch }];
     if ($("#f-twins") && $("#f-twins").checked) {
-      const shared = {}; ["d", "l", "lat", "lon", "p"].forEach((k) => { if (k in patch) shared[k] = patch[k]; });
+      const shared = {}; ["e", "d", "l", "lat", "lon", "p"].forEach((k) => { if (k in patch) shared[k] = patch[k]; });
       if (Object.keys(shared).length) twins.filter((x) => !("d" in shared) || M.sameYearOk(x, shared.d)).forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: shared }));
     }
     // a date that matches ticks of other lists: take their place if this one has none, so they stay linked
@@ -312,7 +327,7 @@ export function renderEdit(view, cle, id) {
       if (src) ops[0].patch = { ...ops[0].patch, l: src.l || null, lat: src.lat ?? null, lon: src.lon ?? null, p: src.p || null, sl: src.sl || null };
     }
     if (st.l && st.lat != null && ("l" in patch || "lat" in patch)) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon } });
-    S.apply(ops, `Modification : ${M.name(t0.e)} (${l.nom})`);
+    S.apply(ops, `Modification : ${M.name(t0.e)}${"e" in patch ? " → " + M.name(patch.e) : ""} (${l.nom})`);
     toast("Modifié."); history.back();
   });
   const del = $("#f-del");
