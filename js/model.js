@@ -133,7 +133,9 @@ export function buildModel(db) {
   M.spQ = (sid) => M.bestQ(sid) || M.liferQ(sid);
   // one picture whatever its copy: same shooting day and time, same original file name
   M.picKey = (p) => (p && p.file && p.d ? [p.d, p.h || "", String(p.file).toLowerCase().replace(/\.(jpe?g|cr[23]|nef|arw|dng|tiff?|png|heic)$/, "")].join("|") : null);
-  M.allPhotos = (sid) => {
+  const allMemo = new Map();
+  M.allPhotos = (sid) => { if (!allMemo.has(sid)) allMemo.set(sid, allPhotosOf(sid)); return allMemo.get(sid); };
+  const allPhotosOf = (sid) => {
     // the same picture stored twice (Liste folder and added to a tick, or chosen again as best of) shows once,
     // with all its roles in its caption
     const out = [], seen = new Map(), add = (p, label, q) => {
@@ -142,8 +144,8 @@ export function buildModel(db) {
       if (had) { if (!had.label.split(" · ").includes(label.split(" · ")[0])) had.label += " · " + label; if (!had.q && q) had.q = q; ks.forEach((k) => seen.set(k, had)); return; }
       const x = { ...p, label, ...(q ? { q } : {}) }; out.push(x); ks.forEach((k) => seen.set(k, x));
     };
-    const ticks = M.ticks.filter((t) => t.e === sid);
-    const lif = ticks.find((t) => t.cle === LIFERS), firsts = M.firstPhotos(sid);
+    const ticks = [...(M.bySp.get(sid) || new Map()).values()].flat();
+    const lif = M.tick(sid, LIFERS), firsts = M.firstPhotos(sid);
     const lifPhoto = lif && (lif.ph || firsts.find((p) => p.d === lif.d));
     const best = M.bestPhoto(sid);
     if (best) add(best, "Meilleure photo", M.bestQ(sid));

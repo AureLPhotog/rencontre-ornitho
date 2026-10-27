@@ -56,7 +56,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.e
 // ---------- router ----------
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
-  [/^#\/journal$/, screenJournal], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
+  [/^#\/journal$/, screenJournal], [/^#\/especes$/, screenAllSpecies], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
   [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
@@ -91,7 +91,11 @@ window.addEventListener("hashchange", () => { if ((location.hash || "#/") === cu
 window.addEventListener("ro-redraw", () => { const y = scrollY; draw(location.hash); scrollTo(0, y); });
 // the + button on the form already open: a fresh form (a link to the page you are on does nothing by itself)
 document.querySelector("#nav .add").addEventListener("click", (e) => { if (location.hash === "#/ajout") { e.preventDefault(); draw("#/ajout"); scrollTo(0, 0); } });
-function setNav(h) { $$("#nav a").forEach((a) => a.setAttribute("aria-current", h.startsWith(a.getAttribute("href")) && (a.getAttribute("href") !== "#/" || h === "#/" || /^#\/(liste|espece)/.test(h)) ? "page" : "false")); }
+// the tab of the screen: a species opened from the Espèces tab stays under it, the other lists and species under Listes
+function setNav(h) {
+  const tab = /^#\/especes|^#\/espece\/[^?]*\?l=especes/.test(h) ? "#/especes" : /^#\/?$|^#\/(liste|espece|coche|carte)/.test(h) ? "#/" : (h.match(/^#\/[a-z-]+/) || [""])[0];
+  $$("#nav a").forEach((a) => a.setAttribute("aria-current", a.getAttribute("href") === tab || (tab === "#/annee" && a.getAttribute("href") === "#/annee") ? "page" : "false"));
+}
 function loading() {
   view.innerHTML = S.state === "error" || S.state === "offline" ? `<div class="empty"><p>${esc(S.error || "Impossible de lire la base.")}</p><p><a href="#/reglages">Réglages</a></p></div>` : `<div class="empty"><p>Lecture de la base sur GitHub…</p></div>`;
 }
@@ -180,7 +184,7 @@ function screenHome() {
   const ys = M.years.slice();
   const now = M.yearList(y0, "fr").length, prev = ys.includes(y0 - 1) ? atDay(y0 - 1) : null;
   view.innerHTML = `<div class="screen keep-scroll home2">
-    <div class="hsearch"><input class="field" type="search" id="hq" placeholder="Chercher un oiseau" autocomplete="off" value="${esc(UI.hq || "")}"><ul class="hres" id="hres" hidden></ul></div>
+    <div class="hsearch"><input class="field" type="search" id="hq" placeholder="Oiseau, date, lieu, n° de photo…" autocomplete="off" value="${esc(UI.hq || "")}"><div class="hres2" id="hres" hidden></div></div>
     ${ys.includes(y0) ? `<a class="ynow" href="#/annee/${y0}"><span><small>Year list ${y0} · France</small><b>${now}</b> espèces</span>${prev != null ? `<span class="ydiff ${now >= prev ? "up" : "down"}">${now >= prev ? "+" : "−"}${Math.abs(now - prev)}<small>vs ${y0 - 1} à la même date</small></span>` : ""}</a>` : ""}
     <section class="lgroup"><h3 class="minor">Listes photo</h3>
       ${lrow(LIFERS, 0, `${liferAll} avec les vues / entendues à l'étranger`)}
@@ -194,20 +198,121 @@ function screenHome() {
     </div></section>
     <section><h3 class="minor">Year lists</h3><div class="years">${ys.slice().reverse().map((y) => { const fr = M.yearList(y, "fr").length, w = M.yearList(y, "monde").length; return `<a href="#/annee/${y}"><span>${y}</span><b>${fr}</b>${w !== fr ? `<small>${w} avec l'étranger</small>` : ""}</a>`; }).join("")}</div></section>
   </div>`;
-  // search a bird across all lists: where it is ticked, with the name that matched
+  // search across everything (birds, dates, places, photo numbers), the same as on the Espèces tab
   const hq = $("#hq"), hres = $("#hres");
-  const where = (sid) => { const m = M.bySp.get(sid); return m ? M.listes.filter((l) => m.has(l.cle) && l.type !== "annee").map((l) => chip(l.cle)).join(" ") : '<span class="cap">jamais cochée</span>'; };
   const hdraw = () => {
-    const v = hq.value.trim(); saveUI({ hq: v }); const k = norm(v);
-    if (!k) { hres.hidden = true; hres.innerHTML = ""; return; }
-    const found = M.search(v, 25);
-    hres.hidden = false;
-    hres.innerHTML = found.map((e) => {
-      const alt = norm(e.n).includes(k) ? "" : [...(e.al || []), e.sc, ...(e.scs || [])].filter(Boolean).find((a) => M.matches(k, a));
-      return `<li><a href="#/espece/${esc(e.id)}"><b>${esc(e.n)}</b>${qTag(M.spQ(e.id))}${alt ? ` <small class="cap">(${esc(alt)})</small>` : ""}</a><span class="hwhere">${where(e.id)}</span></li>`;
-    }).join("") || `<li class="cap">Aucun oiseau trouvé pour « ${esc(v)} ».</li>`;
+    const v = hq.value.trim(); saveUI({ hq: v });
+    if (!v) { hres.hidden = true; hres.innerHTML = ""; return; }
+    hres.hidden = false; hres.innerHTML = resultsHtml(findAll(v), { max: 25 });
   };
-  hq.addEventListener("input", hdraw); hdraw();
+  let htm = null; hq.addEventListener("input", () => { clearTimeout(htm); htm = setTimeout(hdraw, 150); }); hdraw();
+}
+
+
+// ---------- search everywhere: birds, dates, places, photo numbers ----------
+const MOIS_N = MOIS.map(norm), MOIS_CN = MOIS_C.map((m) => norm(m));
+const pad2 = (n) => String(n).padStart(2, "0");
+const monthOf = (w) => { const i = MOIS_N.indexOf(w); if (i >= 0) return i + 1; const j = MOIS_CN.findIndex((m) => m && (w === m || (w.length >= 3 && m.startsWith(w) && MOIS_N[MOIS_CN.indexOf(m)].startsWith(w)))); return j >= 0 ? j + 1 : 0; };
+// a date written in any usual way: 11/05/2019, 11.05.2019, 2019-05-11, 11/05 (every year), 05/2019, mai 2019, 11 mai, 2019
+function parseWhen(k) {
+  const w = k.split(" ").filter(Boolean), num = (x) => /^\d+$/.test(x), y4 = (x) => /^(19|20)\d\d$/.test(x);
+  const day = (d, m, y) => (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31 ? { d, m, y } : null);
+  let r = null;
+  if (w.length === 3 && w.every(num)) r = y4(w[0]) ? day(w[2], w[1], w[0]) : y4(w[2]) ? day(w[0], w[1], w[2]) : null;
+  else if (w.length === 2 && w.every(num)) r = y4(w[1]) && +w[0] <= 12 ? { m: w[0], y: w[1] } : y4(w[0]) && +w[1] <= 12 ? { m: w[1], y: w[0] } : !y4(w[0]) && !y4(w[1]) ? day(w[0], w[1]) : null;
+  else if (w.length === 1 && y4(w[0])) r = { y: w[0] };
+  else if (w.length >= 1 && w.length <= 3) {
+    const mi = w.findIndex((x) => !num(x)), m = mi >= 0 ? monthOf(w[mi]) : 0;
+    if (m && w.every((x, i) => i === mi || num(x))) { const rest = w.filter((_, i) => i !== mi), y = rest.find(y4), d = rest.find((x) => !y4(x)); r = d ? day(d, m, y) : { m, y }; }
+  }
+  if (!r) return null;
+  const D = r.d && pad2(r.d), Mo = r.m && pad2(r.m);
+  const test = (iso) => !!iso && (!r.y || iso.slice(0, 4) === r.y) && (!Mo || iso.slice(5, 7) === Mo) && (!D || iso.slice(8, 10) === D);
+  const mo = Mo && MOIS[+r.m - 1], de = (w) => (/^[aeiouh]/.test(w) ? "d'" : "de ") + w;
+  const label = D ? `du ${+r.d === 1 ? "1er" : +r.d} ${mo}${r.y ? " " + r.y : " (toutes les années)"}` : Mo ? `${de(mo)}${r.y ? " " + r.y : " (toutes les années)"}` : `de ${r.y}`;
+  return { test, label };
+}
+// all the photos the app knows, with their original file names: for « 5030 », « DSC_5030 », « CR5_4777 »
+function photoIndex() {
+  if (M._phIdx) return M._phIdx;
+  const out = [], seen = new Set();
+  for (const sid of M.bySp.keys()) for (const p of M.allPhotos(sid)) { if (!p.file) continue; const k = sid + "|" + (M.picKey(p) || p.img || p.url); if (seen.has(k)) continue; seen.add(k); out.push({ sid, p, f: " " + norm(p.file) + " " }); }
+  for (const [key, items] of Object.entries(M.db.series || {})) { const [sid, d] = key.split("|"); for (const [img, h, file] of items) { const k = sid + "|" + [d, h || "", String(file).toLowerCase().replace(/\.(jpe?g|cr[23]|nef|arw|dng|tiff?|png|heic)$/, "")].join("|"); if (seen.has(k)) continue; seen.add(k); out.push({ sid, p: { img, h, file, d, label: "Photo de la série du jour" }, f: " " + norm(file) + " " }); } }
+  return (M._phIdx = out);
+}
+export function findAll(q) {
+  const k = norm(q); if (!k) return null;
+  const when = parseWhen(k), hasLetters = /[a-z]/.test(k), digits = /\d/.test(k);
+  // birds by name (French, other names, Latin), unless the text is clearly a date or a number
+  const species = !when && hasLetters ? M.search(q, 40) : [];
+  // ticks: of that date; or whose place, country or detail has the text
+  let ticks = [];
+  if (when) ticks = M.ticks.filter((t) => when.test(t.d));
+  else if (hasLetters && k.length >= 3) { M._txt = M._txt || new Map(M.ticks.map((t) => [t, " " + norm(`${t.l || ""} ${isFrance(t.p) ? "" : t.p} ${t.t || ""}`) + " "])); ticks = M.ticks.filter((t) => M._txt.get(t).includes(k)); }
+  ticks.sort((a, b) => cmp(b.d || "", a.d || "") || cmp(a.cle, b.cle));
+  // photos by the number or the name of the original file
+  const photos = digits && k.replace(/\D/g, "").length >= 3 ? photoIndex().filter((x) => x.f.includes(" " + k) || (/^\d+$/.test(k) && x.f.includes(k + " ")) || x.f.includes(" " + k.replace(/ /g, ""))) : [];
+  return { k, when, species, ticks, photos };
+}
+// the rows: a species (photo, name, labels, its lists), a tick (list, date, place), a photo (picture, file, date)
+const spThumb = (sid) => { const p = M.allPhotos(sid)[0]; return `<span class="sp-th">${p ? phImg(p.img || p.url, M.name(sid)) : ""}</span>`; };
+function spRow(e, from) {
+  const m = M.bySp.get(e.id) || new Map(), lif = M.tick(e.id, LIFERS);
+  const ls = M.listes.filter((l) => m.has(l.cle) && l.type !== "annee"), yl = M.listes.filter((l) => m.has(l.cle) && l.type === "annee").length;
+  const sub = lif ? `Lifer n°${lif.n || M.rankOf(lif)} · ${lif.d ? fmtShort(lif.d) : "sans date"}${lif.l ? " · " + esc(lif.l) : ""}` : m.has(VU) ? "vue ou entendue, pas encore en photo" : m.size ? "" : "jamais cochée";
+  return `<li class="sprow">${spThumb(e.id)}<span class="what"><a href="#/espece/${esc(e.id)}${from ? "?l=" + from : ""}">${esc(e.n)}</a>${qTag(M.spQ(e.id))}<small>${sub}</small><span class="hwhere">${ls.map((l) => chip(l.cle)).join(" ")}${yl ? ` <span class="chip-s yl">${yl} YL</span>` : ""}</span></span></li>`;
+}
+// the same observation in several lists (same species, same day): one row, with all its lists
+function groupObs(ticks) {
+  const out = [], by = new Map();
+  for (const t of ticks) { const k = t.e + "|" + (t.d || t.cle + t.id); const gs = by.get(k) || []; const g = t.d && gs.find((x) => M.sameObs(x[0], t)); if (g) g.push(t); else { const n = [t]; gs.push(n); out.push(n); } by.set(k, gs); }
+  return out;
+}
+const RANK = (cle) => (cle === LIFERS ? 0 : cle === PHOTO_FR ? 1 : (M.liste.get(cle) || {}).type === "annee" ? 9 : 5);
+const obsRow = (ts) => { ts = ts.slice().sort((a, b) => RANK(a.cle) - RANK(b.cle)); const t = ts.find((x) => x.l) || ts[0], main = ts[0], ph = M.photosFor(main)[0];
+  return `<li class="sprow"><span class="sp-th">${ph ? phImg(ph.img || ph.url, M.name(t.e)) : ""}</span><span class="what"><a href="#/coche/${esc(main.cle)}/${esc(main.id)}">${esc(M.name(t.e))}</a>${qTag(main.q)}<small>${t.d ? esc(fmtShort(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${!isFrance(t.p) ? " · " + esc(t.p) : ""}${t.t ? " · " + esc(t.t) : ""}</small><span class="hwhere">${ts.map((x) => `<a class="chip-s" ${cstyle(x.cle)} href="#/coche/${esc(x.cle)}/${esc(x.id)}">${esc(L(x.cle).nom)}${M.rankOf(x) ? " n°" + M.rankOf(x) : ""}</a>`).join(" ")}</span></span></li>`; };
+const photoRow = (x) => `<li class="sprow"><span class="sp-th">${phImg(x.p.img || x.p.url, M.name(x.sid))}</span><span class="what"><a href="#/espece/${esc(x.sid)}">${esc(M.name(x.sid))}</a>${qTag(x.p.q)}<small>${esc(x.p.file)} · ${x.p.d ? esc(fmtShort(x.p.d)) : "sans date"}${x.p.h ? " " + esc(x.p.h) : ""}</small><small>${esc(x.p.label || "")}</small></span></li>`;
+export function resultsHtml(r, { max = 60, from } = {}) {
+  if (!r) return "";
+  const sec = (title, n, rows, cls = "ticks") => n ? `<section class="sres"><h3 class="minor">${title} · ${n}</h3><ul class="${cls}">${rows}</ul>${n > max ? `<p class="cap">… et ${n - max} autres : précise ta recherche.</p>` : ""}</section>` : "";
+  const html = sec("Oiseaux", r.species.length, r.species.slice(0, max).map((e) => spRow(e, from)).join(""), "ticks splist")
+    + (() => { const obs = groupObs(r.ticks); return sec(r.when ? `Observations ${esc(r.when.label)}` : "Observations à ce lieu ou avec ce détail", obs.length, obs.slice(0, max).map(obsRow).join(""), "ticks splist"); })()
+    + sec("Photos dont le fichier correspond", r.photos.length, r.photos.slice(0, max).map(photoRow).join(""), "ticks splist");
+  return html || `<p class="cap">Rien trouvé pour « ${esc(r.k)} ». Essaie un nom d'oiseau, une date (11/05/2019, mai 2019), un lieu ou un numéro de photo.</p>`;
+}
+
+// ---------- all the species ----------
+function screenAllSpecies() {
+  const F = Object.assign({ f: "cochees", s: "nom" }, UI.spf || {});
+  view.innerHTML = `<div class="screen keep-scroll"><h2>Espèces</h2>
+    <input class="field" type="search" id="sq" placeholder="Oiseau, date, lieu, n° de photo…" autocomplete="off" value="${esc(UI.sq || "")}">
+    <div class="tools" id="sp-tools"><div class="seg" role="group" aria-label="Espèces">${[["cochees", "Cochées"], ["photo", "En photo"], ["vu", "Pas encore en photo"]].map(([k, t]) => `<button type="button" data-spf="${k}" aria-pressed="${F.f === k}">${t}</button>`).join("")}</div>
+      <div class="seg" role="group" aria-label="Trier">${[["nom", "Nom"], ["famille", "Famille"], ["lifer", "Lifer"]].map(([k, t]) => `<button type="button" data-sps="${k}" aria-pressed="${F.s === k}">${t}</button>`).join("")}</div></div>
+    <p class="cap" id="sp-n"></p><div id="sp-res"></div>
+    <p class="cap" id="sp-help">Recherche : un oiseau (nom, autre nom, nom latin), une date (11/05/2019, 11/05, mai 2019, 2019), un lieu, ou le numéro d'une photo (5030, DSC_5030).</p></div>`;
+  const all = M.db.especes.filter((e) => M.bySp.has(e.id));
+  const list = () => {
+    let es = all.filter((e) => F.f === "photo" ? M.inList(e.id, LIFERS) : F.f === "vu" ? !M.inList(e.id, LIFERS) : true);
+    const lifD = (e) => (M.tick(e.id, LIFERS) || {}).d || "";
+    es = es.slice().sort(F.s === "lifer" ? (a, b) => cmp(lifD(b), lifD(a)) || byFr(a.n, b.n) : F.s === "famille" ? (a, b) => (!a.fa - !b.fa) || byFr(a.fa || "", b.fa || "") || byFr(a.n, b.n) : (a, b) => byFr(a.n, b.n));
+    return es;
+  };
+  const draw = () => {
+    const q = $("#sq").value.trim(); saveUI({ sq: q });
+    $("#sp-tools").hidden = !!q;
+    if (q) { const r = findAll(q); $("#sp-n").textContent = ""; $("#sp-res").innerHTML = resultsHtml(r, { max: 150, from: "especes" }); saveUI({ nav: { key: "especes", nom: "Recherche", ids: r.species.map((e) => e.id), refs: r.ticks.map((t) => t.cle + "/" + t.id) } }); return; }
+    const es = list();
+    $("#sp-n").textContent = `${es.length} ${plural(es.length, "espèce")}${F.f === "cochees" ? ` · ${M.speciesOf(LIFERS).length} en photo` : ""}`;
+    let html = "";
+    if (F.s === "famille") { const g = new Map(); es.forEach((e) => { const k = e.fa || "Famille inconnue"; if (!g.has(k)) g.set(k, []); g.get(k).push(e); }); html = [...g].map(([fa, xs]) => `<section class="sres"><h3 class="minor">${esc(fa)} · ${xs.length}</h3><ul class="ticks splist">${xs.map((e) => spRow(e, "especes")).join("")}</ul></section>`).join(""); }
+    else html = `<ul class="ticks splist">${es.map((e) => spRow(e, "especes")).join("")}</ul>`;
+    $("#sp-res").innerHTML = html;
+    saveUI({ nav: { key: "especes", nom: "Espèces", ids: es.map((e) => e.id) } });
+  };
+  let tm = null; $("#sq").addEventListener("input", () => { clearTimeout(tm); tm = setTimeout(draw, 150); });
+  $$("[data-spf]").forEach((b) => b.addEventListener("click", () => { F.f = b.dataset.spf; saveUI({ spf: F }); $$("[data-spf]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); draw(); }));
+  $$("[data-sps]").forEach((b) => b.addEventListener("click", () => { F.s = b.dataset.sps; saveUI({ spf: F }); $$("[data-sps]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); draw(); }));
+  draw();
 }
 
 // ---------- one list ----------
