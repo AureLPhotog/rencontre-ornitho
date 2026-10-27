@@ -57,6 +57,8 @@ function draw(h) {
   location.replace("#/");
 }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
+// the + button on the form already open: a fresh form (a link to the page you are on does nothing by itself)
+document.querySelector("#nav .add").addEventListener("click", (e) => { if (location.hash === "#/ajout") { e.preventDefault(); draw("#/ajout"); scrollTo(0, 0); } });
 function setNav(h) { $$("#nav a").forEach((a) => a.setAttribute("aria-current", h.startsWith(a.getAttribute("href")) && (a.getAttribute("href") !== "#/" || h === "#/" || /^#\/(liste|espece)/.test(h)) ? "page" : "false")); }
 function loading() {
   view.innerHTML = S.state === "error" || S.state === "offline" ? `<div class="empty"><p>${esc(S.error || "Impossible de lire la base.")}</p><p><a href="#/reglages">Réglages</a></p></div>` : `<div class="empty"><p>Lecture de la base sur GitHub…</p></div>`;
@@ -83,9 +85,10 @@ function hydrate(root) {
 // any screen that draws photos gets them loaded, however it was drawn
 new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtree: true });
 // several photos of one species (photo of the tick, first photo, best photo): arrows to go from one to the other
-export function phSlider(photos, name) {
+// del: the species, to offer « Supprimer » on each photo
+export function phSlider(photos, name, { del } = {}) {
   if (!photos.length) return "";
-  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
 }
 export function wirePhotos(root) {
   $$(".phs:not([data-w])", root).forEach((box) => {
@@ -95,6 +98,18 @@ export function wirePhotos(root) {
   });
   hydrate(root);
 }
+// « Supprimer » on a photo: a second tap confirms; the photo goes from everywhere it shows (best of, ticks, Liste folder)
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-phdel]"); if (!b) return;
+  ev.stopPropagation();
+  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Confirmer la suppression"; b.classList.add("armed"); setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Supprimer"; b.classList.remove("armed"); } }, 4000); return; }
+  const sid = b.dataset.sid, ops = M.deletePhotoOps(sid, b.dataset.phdel);
+  if (!ops.length) { toast("Cette photo n'est enregistrée nulle part."); return; }
+  const n = ops.filter((o) => o.kind === "set-tick").length;
+  S.apply(ops, `Photo supprimée : ${M.name(sid)}${n ? ` (${n} ${plural(n, "coche")})` : ""}`);
+  toast("Photo supprimée. « Annuler » dans À faire pour la remettre.");
+  const y = scrollY; draw(location.hash); scrollTo(0, y);
+}, true);
 // a tap on a photo shows it big
 document.addEventListener("click", (ev) => {
   const im = ev.target.closest("img.ph[src]"); if (!im || im.closest(".ph-pk")) return;
@@ -211,7 +226,7 @@ function screenTick(cle, id) {
       <h1><a class="sp-link" href="#/espece/${esc(t.e)}?l=${esc(cle)}">${esc(e.n)}</a>${qTag(t.q)}${qTag(M.bestQ(t.e), "best")}</h1>
       <p class="cap">${e.sc ? `<i>${esc(e.sc)}</i>` : ""}</p></header>
     <a class="btn btn-primary" href="#/espece/${esc(t.e)}?l=${esc(cle)}">Page de l'espèce : toutes les listes et toutes les photos →</a>
-    ${photos.length ? `<section class="sp-photos">${phSlider(photos, e.n)}</section>` : ""}
+    ${photos.length ? `<section class="sp-photos">${phSlider(photos, e.n, { del: t.e })}</section>` : ""}
     <div class="qrow"><span class="cap">Étiquette de la photo de cette coche${twins.length ? " (vaut aussi pour la même observation dans ses autres listes)" : ""}</span><div class="qpick" role="group" aria-label="Étiquette de la photo">${QUALITES.map((x) => `<button type="button" class="qtag${t.q === x.v ? " on" : ""}" style="--c:${x.c}" data-tq="${esc(x.v)}" aria-pressed="${t.q === x.v}">${x.court}</button>`).join("")}</div>${M.bestQ(t.e) ? `<span class="cap">Photo best of de l'espèce : ${qTag(M.bestQ(t.e), "best")}</span>` : ""}</div>
     <ul class="plain tkinfo"><li><b>Date</b> ${t.d ? esc(fmtDay(t.d)) : "<em>sans date</em>"}${t.sd ? ` <small>(${esc(srcName(t.sd))})</small>` : ""}</li>
       <li><b>Lieu</b> ${t.l ? esc(t.l) : "<em>sans nom</em>"}${t.lat != null ? ` · <a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${t.lat}, ${t.lon}</a>` : " · <em>sans coordonnées</em>"}${t.sl ? ` <small>(${esc(srcName(t.sl))})</small>` : ""}</li>
@@ -440,7 +455,7 @@ function screenSpecies(sid, q) {
   });
   view.innerHTML = `<div class="screen">
     ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Étiquette de la photo best of</span><div class="qpick" role="group" aria-label="Étiquette de la photo best of">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}${!e.q && M.liferQ(sid) ? `<span class="cap">Pas d'étiquette best of : l'espèce prend celle de la photo lifer ${qTag(M.liferQ(sid))}</span>` : ""}</div></header>
-    ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n)}</section>` : ""; })()}
+    ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n, { del: sid })}</section>` : ""; })()}
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>

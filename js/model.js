@@ -105,9 +105,21 @@ export function buildModel(db) {
   M.photoDays = (sid) => ((db.photos || {})[sid] || {}).jours || [];
   M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
   // the pictures themselves (small copies in the data repo): first photos [date, time, image, original file, zone], best photo
-  M.firstPhotos = (sid) => (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone }));
+  // photos of the Liste folder you deleted in the app (species "hide": their images) are not shown any more
+  const hiddenOf = (sid) => new Set(((db.especes || []).find((x) => x.id === sid) || {}).hide || []);
+  M.firstPhotos = (sid) => { const hid = hiddenOf(sid); return (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone })).filter((p) => !hid.has(p.img)); };
   // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
-  M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b && !hiddenOf(sid).has(b[2]) ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  // deleting a photo everywhere it shows: best of, photo of ticks, photo of the Liste folder
+  M.deletePhotoOps = (sid, key) => {
+    const e = (db.especes || []).find((x) => x.id === sid) || {}, patch = {};
+    if (e.best && (e.best.img || e.best.url) === key) patch.best = null;
+    const v = (db.vign || {})[sid] || {};
+    if ((v.p || []).some((x) => x[2] === key) || (v.b && v.b[2] === key)) patch.hide = [...new Set([...(e.hide || []), key])];
+    const ops = Object.keys(patch).length ? [{ kind: "set-espece", id: sid, patch }] : [];
+    M.ticks.filter((t) => t.e === sid && t.ph && (t.ph.img || t.ph.url) === key).forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: { ph: null } }));
+    return ops;
+  };
   // every photo of a species for its main page: the best first (else the lifer photo), then the first photos,
   // then the photos added to ticks of the lists
   // labels: the best-of photo's (espece.q), else the lifer photo's (the lifer tick's q)
