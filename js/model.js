@@ -110,6 +110,8 @@ export function buildModel(db) {
   M.firstPhotos = (sid) => { const hid = hiddenOf(sid); return (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone })).filter((p) => !hid.has(p.img)); };
   // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
   M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b && !hiddenOf(sid).has(b[2]) ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  // the series of photos of that day (Liste folder) to choose the photo of an observation from
+  M.series = (sid, d) => (((db.series || {})[sid + "|" + d]) || []).map(([img, h, file]) => ({ img, h, file, d }));
   // deleting a photo everywhere it shows: best of, photo of ticks, photo of the Liste folder
   M.deletePhotoOps = (sid, key) => {
     const e = (db.especes || []).find((x) => x.id === sid) || {}, patch = {};

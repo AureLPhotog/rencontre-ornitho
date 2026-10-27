@@ -19,7 +19,8 @@ const cleOfPath = (path) => (path.match(/^data\/coches\/([a-z0-9-]+)\.json$/) ||
 const sourcePath = (k) => `data/sources/${k}.json`;
 const srcOfPath = (path) => (path.match(/^data\/sources\/([a-z0-9-]+)\.json$/) || [])[1];
 
-function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {}, photos: {}, vign: {} }; }
+function emptyDb() { return { listes: [], especes: [], lieux: [], taches: [], coches: {}, sources: {}, photos: {}, vign: {}, series: {} }; }
+const SERIES = "data/ref/series.json";
 function dbFromFiles(files) {
   const db = emptyDb();
   for (const [path, f] of Object.entries(files)) {
@@ -30,6 +31,7 @@ function dbFromFiles(files) {
     else if (path === P.taches) db.taches = j.taches || [];
     else if (srcOfPath(path)) db.sources[srcOfPath(path)] = j;
     else if (path === "data/ref/photos.json") db.photos = j.especes || {}; // the days you have photos of each species (read only)
+    else if (path === SERIES) db.series = j.series || {}; // "species|day" -> the photos of that day in the Liste folder [image, time, original file], to choose from
     else if (path === "data/ref/vignettes.json") db.vign = j.especes || {}; // species -> { p: first photos [date, time, image, original file, zone], b: best }
     else { const cle = cleOfPath(path); if (cle) db.coches[cle] = j.coches || []; }
   }
@@ -41,6 +43,7 @@ function fileText(db, path) {
   if (path === P.especes) return stringifyRows({ version: 1 }, "especes", db.especes);
   if (path === P.lieux) return stringifyRows({ version: 1 }, "lieux", db.lieux);
   if (path === P.taches) return stringifyRows({ version: 1 }, "taches", db.taches);
+  if (path === SERIES) return `{"version":1,"series":{\n${Object.keys(db.series || {}).sort().map((k) => JSON.stringify(k) + ":" + JSON.stringify(db.series[k])).join(",\n")}\n}}\n`;
   const k = srcOfPath(path);
   if (k) { const s = db.sources[k] || {}, sp = s.especes || {}; return `{"version":1,"source":${JSON.stringify(k)},"maj":${JSON.stringify(s.maj || "")},"especes":{\n${Object.keys(sp).sort().map((e) => JSON.stringify(e) + ":" + JSON.stringify(sp[e])).join(",\n")}\n}}\n`; }
   const cle = cleOfPath(path); return stringifyRows({ liste: cle }, "coches", db.coches[cle] || []);
@@ -56,6 +59,7 @@ export function opFiles(op) {
     case "add-espece": case "set-espece": return [P.especes];
     case "add-lieu": return [P.lieux];
     case "set-tache": case "add-tache": return [P.taches];
+    case "set-serie": return [SERIES];
     case "set-source": return [sourcePath(op.source)];
     default: return [];
   }
@@ -73,6 +77,7 @@ export function applyOp(db, op) {
     case "add-lieu": { db.lieux = db.lieux.filter((l) => l.nom !== op.lieu.nom); db.lieux.unshift({ ...op.lieu }); db.lieux = db.lieux.slice(0, 400); break; }
     case "add-tache": if (!db.taches.some((t) => t.id === op.tache.id)) db.taches.push({ ...op.tache }); break;
     case "set-tache": { const t = db.taches.find((x) => x.id === op.id); if (t) patchObj(t, op.patch); break; }
+    case "set-serie": { db.series = db.series || {}; if (op.items && op.items.length) db.series[op.key] = op.items; else delete db.series[op.key]; break; }
     case "set-source": db.sources[op.source] = op.data; break;
   }
   return db;
@@ -246,6 +251,20 @@ export class Store {
     try { const c = await caches.open("ro-photos-v1"); await c.put(`https://ro-photos.invalid/${sha}.jpg`, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })); } catch (_) {}
     return sha;
   }
+  // remove photos from the repository (one commit), e.g. the photos of a series not chosen
+  async deleteImages(paths, message) {
+    paths = paths.filter((p) => this.images[p]); if (!paths.length) return 0;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const c = await this.gh("GET", this.repoPath(`/commits/${encodeURIComponent(this.cfg.branch)}`));
+      const tree = await this.gh("POST", this.repoPath("/git/trees"), { base_tree: c.commit.tree.sha, tree: paths.map((path) => ({ path, mode: "100644", type: "blob", sha: null })) });
+      const commit = await this.gh("POST", this.repoPath("/git/commits"), { message, tree: tree.sha, parents: [c.sha] });
+      try { await this.gh("PATCH", this.repoPath(`/git/refs/heads/${encodeURIComponent(this.cfg.branch)}`), { sha: commit.sha, force: false }); }
+      catch (e) { if (e.status === 422 || e.status === 409) continue; throw e; }
+      paths.forEach((p) => { delete this.images[p]; }); this._save();
+      return paths.length;
+    }
+    throw new Error("Le dépôt change trop vite, réessaie.");
+  }
   resetCache() { this.files = {}; this.commit = null; this._rebuild(); this._save(); }
 }
 
@@ -261,6 +280,7 @@ function inverseOp(db, op) {
     case "set-espece": { const p = prev(db.especes.find((x) => x.id === op.id), op.patch); return p && { kind: "set-espece", id: op.id, patch: p }; }
     case "set-liste": { const p = prev(db.listes.find((x) => x.cle === op.cle), op.patch); return p && { kind: "set-liste", cle: op.cle, patch: p }; }
     case "set-tache": { const p = prev(db.taches.find((x) => x.id === op.id), op.patch); return p && { kind: "set-tache", id: op.id, patch: p }; }
+    case "set-serie": return { kind: "set-serie", key: op.key, items: (db.series || {})[op.key] || null };
     case "add-tick": return (db.coches[op.cle] || []).some((t) => t.id === op.tick.id) ? null : { kind: "del-tick", cle: op.cle, id: op.tick.id };
     case "del-tick": { const t = (db.coches[op.cle] || []).find((x) => x.id === op.id); return t ? { kind: "add-tick", cle: op.cle, tick: JSON.parse(JSON.stringify(t)) } : null; }
     default: return null; // new lists, species, places, tasks and sources stay (harmless)

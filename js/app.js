@@ -242,6 +242,9 @@ function screenTick(cle, id) {
   const photos = M.photosFor(t);
   const twins = t.d ? M.ticks.filter((x) => x !== t && M.sameObs(t, x)) : [];
   const renumAll = l.numerotee && t.d ? M.renumber(cle) : [], renumMv = renumAll.find((m) => m.t.id === t.id);
+  // a series of photos that day: the photo of the observation is chosen among them
+  const serie = t.d ? M.series(t.e, t.d) : [], cur0 = photos[0], curKey = cur0 ? M.picKey(cur0) : null;
+  const chosen = [t, ...twins].some((x) => x.phc);
   // the species in the other lists, made by another sighting (a year list only of the same year; not « vu »)
   const others = t.d ? M.ticks.filter((x) => x.e === t.e && x.cle !== cle && x.cle !== VU && !twins.includes(x) && !(x.d === t.d && M.sameObs(t, x)) && M.sameYearOk(x, t.d)) : [];
   view.innerHTML = `<div class="screen">
@@ -261,6 +264,7 @@ function screenTick(cle, id) {
     ${renumMv ? `<p class="tkwarn">Le n°${t.n} n'est plus dans l'ordre des dates : par date, cette coche serait n°${renumMv.to}. <button type="button" class="btn" id="tk-renum">Renuméroter ${esc(l.nom)} par date</button><small class="cap">${renumAll.length} ${plural(renumAll.length, "coche")} ${renumAll.length > 1 ? "changent" : "change"} de numéro.</small></p>` : ""}
     <div class="row"><a class="btn" href="#/coche/${cle}/${id}/modifier">Modifier la coche</a></div>
     ${others.length ? `<section class="panel"><h3 class="minor">L'espèce dans tes autres listes</h3><p class="cap">Une autre observation y fait la coche. « Remplacer » y met celle-ci à la place (date, lieu, photo), en gardant la coche de la liste.</p><ul class="todo">${others.map((x) => `<li><span>${chip(x.cle)}<small>${tickLine(x) || "sans date ni lieu"}</small></span><span class="row"><button type="button" class="btn" data-repl="${x.cle}/${x.id}">Remplacer par celle-ci</button></span></li>`).join("")}</ul></section>` : ""}
+    ${serie.length > 1 ? `<section class="panel" id="tk-serie"><h3 class="minor">Série de ${serie.length} photos ce jour-là</h3><p class="cap">${chosen ? "Photo choisie. Touche une autre photo pour la changer." : "Choisis la photo de la coche : elle vaut pour l'observation dans toutes ses listes. Les autres photos de la série sont ensuite supprimées de ta base (tes originaux ne bougent pas)."}</p><div class="ser-grid">${serie.map((p, i) => `<button type="button" class="ser-pk${M.picKey(p) === curKey ? " on" : ""}" data-ser="${i}" title="${esc(p.file)} · ${esc(p.h || "")}"><img class="ph" data-ph="${esc(p.img)}" data-alt="" alt=""><small>${esc(p.h || "")}</small></button>`).join("")}</div>${!chosen && curKey && serie.some((p) => M.picKey(p) === curKey) ? '<div class="row"><button type="button" class="btn btn-primary" id="ser-keep">Garder la photo actuelle</button></div>' : ""}</section>` : ""}
     <div id="tk-ph"></div>
   </div>`;
   if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
@@ -277,6 +281,24 @@ function screenTick(cle, id) {
     S.apply({ kind: "set-tick", cle: oc, id: oid, patch }, `${ol.nom} : ${e.n} remplacée par l'observation du ${fmtShort(t.d)}${t.l ? " (" + t.l + ")" : ""} (avant : ${o.d ? fmtShort(o.d) : "sans date"})`);
     toast(`${ol.nom} : coche remplacée par celle-ci.`); const y = scrollY; screenTick(cle, id); scrollTo(0, y);
   }));
+  // choosing in the series: the photo goes to the whole observation, the series is closed and its other photos deleted
+  const closeSerie = async (keep) => {
+    const dels = serie.map((p) => p.img).filter((img) => img !== keep && /^data\/photos\/serie\//.test(img));
+    const old = [t, ...twins].map((x) => x.ph && x.ph.img).filter((img) => img && img !== keep && /^data\/photos\/obs\//.test(img) && !M.ticks.some((y) => y.ph && y.ph.img === img && y.e === t.e && y.d !== t.d));
+    try { const n = await S.deleteImages([...new Set([...dels, ...old])], `Série ${e.n} (${fmtShort(t.d)}) : photos non choisies supprimées`); if (n) toast(`${n} photo${n > 1 ? "s" : ""} de la série supprimée${n > 1 ? "s" : ""} de ta base.`); }
+    catch (err) { toast("Photos de la série pas supprimées : " + err.message, "error"); }
+  };
+  $$("[data-ser]").forEach((b) => b.addEventListener("click", () => {
+    const p = serie[+b.dataset.ser], obsT = [t, ...twins]; if (!p) return;
+    const same = curKey && M.picKey(p) === curKey;
+    const ph = { img: p.img, d: p.d, h: p.h || null, file: p.file, src: "serie" };
+    S.apply([...obsT.map((x) => ({ kind: "set-tick", cle: x.cle || cle, id: x.id, patch: same && x.ph ? { phc: true } : { ph: same && !x.ph ? null : ph, phc: true, nph: null, ...(same ? {} : { q: null }) } })), { kind: "set-serie", key: t.e + "|" + t.d, items: [[p.img, p.h || "", p.file]] }],
+      `Photo choisie : ${e.n} (${fmtShort(t.d)}) · ${p.file}`);
+    toast(same ? "Photo gardée." : "Photo choisie."); closeSerie(same && cur0 ? cur0.img : p.img);
+    const y = scrollY; screenTick(cle, id); scrollTo(0, y);
+  }));
+  if (UI.goSerie) { saveUI({ goSerie: false }); const se = $("#tk-serie"); if (se) setTimeout(() => se.scrollIntoView({ block: "start" }), 50); }
+  const keep = $("#ser-keep"); if (keep) keep.addEventListener("click", () => { const i = serie.findIndex((p) => M.picKey(p) === curKey); const b = $(`[data-ser="${i}"]`); if (b) b.click(); });
   const un = $("#tk-unnph"); if (un) un.addEventListener("click", () => { S.apply([t, ...twins].filter((x) => x.nph).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { nph: null } })), `Photo à chercher : ${e.n}`); un.parentElement.remove(); toast("Remise dans « Coches sans photo »."); });
   // previous / next tick of the list it was opened from (arrows, swipe, keyboard)
   const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
@@ -673,6 +695,10 @@ function screenTodo() {
   // the photo of an observation that is also the best of: one row, its label goes to both
   c.noTag.forEach((x) => { if (samePic(M.esp.get(x.ts[0].e).best, x.ph)) x.alsoBest = x.ts[0].e; });
   if (!sel) [...M.esp.values()].filter((e) => e.best && !e.q && !c.noTag.some((x) => x.alsoBest === e.id)).forEach((e) => c.noTag.unshift({ best: e.id, ph: e.best }));
+  // a series of photos that day and no photo chosen yet: one row per observation
+  c.toChoose = [...nphG.values()].flat().filter(anyOn).map((ts) => ({ ts, serie: M.series(ts[0].e, ts[0].d) })).filter((x) => x.serie.length > 1 && !x.ts.some((t) => t.phc))
+    .map((x) => ({ ...x, main: (sel && x.ts.find((t) => t.cle === sel)) || x.ts.find((t) => t.cle === LIFERS) || x.ts[0], ph: M.photosFor(x.ts[0])[0] }))
+    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
@@ -698,6 +724,7 @@ function screenTodo() {
     </ul></section>` : ""}
     <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}/modifier">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
     <section data-n="${c.noPhoto.length}"><h3 class="minor">Coches sans photo · ${c.noPhoto.length}</h3>${sel && !needsPh(sel) ? "" : `<div class="seg" role="group" aria-label="Listes"><button type="button" data-nphyl="0" aria-pressed="${!withYL}">Listes photo seulement</button><button type="button" data-nphyl="1" aria-pressed="${withYL}">Toutes les listes</button></div>`}<p class="cap">Listes photo seulement : les observations de Lifers, Photo France et des pays, les seules où la photo est exigée (les listes locales et les year lists comptent une observation quand l'espèce est déjà en photo France). Une ligne par observation : sa photo vaut pour toutes ses listes. « Ajouter une photo » ouvre la coche ; « Pas de photo » la sort d'ici pour de bon. 📁 : ton dossier Liste a des photos de l'espèce ce jour-là.</p>${c.noPhoto.length ? `<ul class="todo">${c.noPhoto.slice(0, 150).map((x, i) => `<li><span>${nameLink(x.main.e)}${x.folder ? ' <span title="Photos ce jour-là dans ton dossier Liste">📁</span>' : ""} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${esc(fmtShort(x.main.d))}${x.main.l ? " · " + esc(x.main.l) : ""}</small></span><span class="row"><button type="button" class="btn" data-goph="${x.main.cle}/${x.main.id}">Ajouter une photo</button><button class="btn" data-noph="${i}">Pas de photo</button></span></li>`).join("")}${c.noPhoto.length > 150 ? `<li><span class="cap">… et ${c.noPhoto.length - 150} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes tes coches photo ont leur photo.</p>'}</section>
+    <section data-n="${c.toChoose.length}"><h3 class="minor">Photo à choisir · ${c.toChoose.length}</h3><p class="cap">Plusieurs photos ce jour-là dans ton dossier Liste : choisis celle de la coche (les autres sont ensuite supprimées de ta base, pas de ton disque).</p>${c.toChoose.length ? `<ul class="todo">${c.toChoose.slice(0, 120).map((x) => `<li class="has-ph"><span class="td-ph">${x.ph ? phImg(x.ph.img || x.ph.url, M.name(x.ts[0].e)) : ""}</span><span><a href="#/espece/${esc(x.ts[0].e)}">${esc(M.name(x.ts[0].e))}</a> ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${esc(fmtShort(x.ts[0].d))} · ${x.serie.length} photos</small></span><span class="row"><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}" data-toserie="1">Choisir</a></span></li>`).join("")}${c.toChoose.length > 120 ? `<li><span class="cap">… et ${c.toChoose.length - 120} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes les photos sont choisies.</p>'}</section>
     <section data-n="${c.noTag.length}"><h3 class="minor">Photos sans étiquette · ${c.noTag.length}</h3>${sel && isYL(sel) ? "" : `<div class="seg" role="group" aria-label="Year lists"><button type="button" data-nphyl="0" aria-pressed="${!withYL}">Sans les year lists</button><button type="button" data-nphyl="1" aria-pressed="${withYL}">Avec les year lists</button></div>`}<p class="cap">Une ligne par photo : l'étiquette vaut pour l'observation dans toutes ses listes. Touche l'étiquette qui convient.</p>${c.noTag.length ? `<ul class="todo">${c.noTag.slice(0, 120).map((x, i) => `<li class="has-ph"><span class="td-ph">${phImg(x.ph.img || x.ph.url, M.name(x.best || x.ts[0].e))}</span><span>${x.best ? `<a href="#/espece/${esc(x.best)}">${esc(M.name(x.best))}</a> <span class="chip-s">best of</span>` : `<a href="#/espece/${esc(x.ts[0].e)}">${esc(M.name(x.ts[0].e))}</a>${x.alsoBest ? ' <span class="chip-s">best of</span>' : ""} ${[...new Set(x.shown.map((t) => t.cle))].map(chip).join(" ")}`}<small>${esc(x.ph.d ? fmtShort(x.ph.d) : x.ts ? fmtShort(x.ts[0].d) : "")}${x.ph.file ? " · " + esc(x.ph.file) : ""}</small></span><span class="qpick">${QUALITES.map((q) => `<button type="button" class="qtag" style="--c:${q.c}" data-qset="${i}|${esc(q.v)}">${q.court}</button>`).join("")}</span></li>`).join("")}${c.noTag.length > 120 ? `<li><span class="cap">… et ${c.noTag.length - 120} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes tes photos ont leur étiquette.</p>'}</section>
     <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
@@ -706,6 +733,7 @@ function screenTodo() {
   // index of the categories: one chip per section, with what is left in it; a tap goes there
   const secs = $$(".screen > section", view);
   $$("[data-nphyl]", view).forEach((b) => b.addEventListener("click", () => { saveUI({ nphYL: b.dataset.nphyl === "1" }); const y = scrollY; screenTodo(); scrollTo(0, y); }));
+  $$("[data-toserie]", view).forEach((a) => a.addEventListener("click", () => { saveUI({ goSerie: true }); }));
   $$("[data-qset]", view).forEach((b) => b.addEventListener("click", () => {
     const [i, v] = b.dataset.qset.split("|"), x = c.noTag[+i]; if (!x) return;
     if (x.best) S.apply({ kind: "set-espece", id: x.best, patch: { q: v } }, `Étiquette best of : ${M.name(x.best)} → ${v}`);
