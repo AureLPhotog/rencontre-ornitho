@@ -1,9 +1,9 @@
 // Everything the screens show is derived here from the raw database (lists, species, ticks).
-import { norm, isFrance, yearOf, distanceInText, maxErrors } from "./util.js";
+import { norm, isFrance, yearOf, distanceInText, maxErrors, byFr, cmp } from "./util.js";
 import { deptFromPlace, communeFromPlace, placeAt, distKm, listCovers } from "./geo.js";
 
 export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
-const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || (a.d || "").localeCompare(b.d || "") || ((a.n || 0) - (b.n || 0));
+const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || cmp(a.d || "", b.d || "") || ((a.n || 0) - (b.n || 0));
 
 export function buildModel(db) {
   const M = { db };
@@ -16,14 +16,16 @@ export function buildModel(db) {
   // ticks, each knowing its list
   M.ticks = [];
   M.bySp = new Map(); // sid -> Map(cle -> [ticks])
+  M.tickAt = new Map(); // "cle/id" -> tick
   for (const l of M.listes) for (const t of db.coches[l.cle] || []) {
     const x = { ...t, cle: l.cle };
-    M.ticks.push(x);
+    M.ticks.push(x); M.tickAt.set(l.cle + "/" + t.id, x);
     if (!M.bySp.has(t.e)) M.bySp.set(t.e, new Map());
     const m = M.bySp.get(t.e); if (!m.has(l.cle)) m.set(l.cle, []); m.get(l.cle).push(x);
   }
   M.bySp.forEach((m) => m.forEach((a) => a.sort(byDate)));
   M.inList = (sid, cle) => !!(M.bySp.get(sid) && M.bySp.get(sid).has(cle));
+  M.tickOf = (cle, id) => M.tickAt.get(cle + "/" + id) || null;
   M.tick = (sid, cle) => (M.bySp.get(sid) && M.bySp.get(sid).get(cle) || [])[0] || null;
   M.name = (sid) => (M.esp.get(sid) || {}).n || sid;
   M.chain = (cle) => { const out = []; let c = cle; const seen = new Set(); while (c && !seen.has(c)) { seen.add(c); out.push(c); c = (M.liste.get(c) || {}).dans; } return out; };
@@ -87,7 +89,7 @@ export function buildModel(db) {
       }
       if (best >= 0) scored.push({ e, s: best + (M.bySp.has(e.id) ? 10 : 0) });
     }
-    return scored.sort((a, b) => b.s - a.s || a.e.n.localeCompare(b.e.n, "fr")).slice(0, limit).map((x) => x.e);
+    return scored.sort((a, b) => b.s - a.s || byFr(a.e.n, b.e.n)).slice(0, limit).map((x) => x.e);
   };
   // the same matching for a whole text (journal, list filters)
   // two ticks of the same species and day are the same observation, unless a zone list (AURA, Rhône, Ouessant…)
@@ -106,15 +108,16 @@ export function buildModel(db) {
   M.photoOn = (sid, d) => M.photoDays(sid).some((x) => x[0] === d);
   // the pictures themselves (small copies in the data repo): first photos [date, time, image, original file, zone], best photo
   // photos of the Liste folder you deleted in the app (species "hide": their images) are not shown any more
-  const hiddenOf = (sid) => new Set(((db.especes || []).find((x) => x.id === sid) || {}).hide || []);
-  M.firstPhotos = (sid) => { const hid = hiddenOf(sid); return (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone })).filter((p) => !hid.has(p.img)); };
+  const hiddenOf = (sid) => new Set((M.esp.get(sid) || {}).hide || []);
+  const firstMemo = new Map();
+  M.firstPhotos = (sid) => { let r = firstMemo.get(sid); if (!r) { const hid = hiddenOf(sid); r = (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone })).filter((p) => !hid.has(p.img)); firstMemo.set(sid, r); } return r; };
   // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
-  M.bestPhoto = (sid) => { const e = (db.especes || []).find((x) => x.id === sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b && !hiddenOf(sid).has(b[2]) ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
+  M.bestPhoto = (sid) => { const e = M.esp.get(sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b && !hiddenOf(sid).has(b[2]) ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
   // the series of photos of that day (Liste folder) to choose the photo of an observation from
   M.series = (sid, d) => (((db.series || {})[sid + "|" + d]) || []).map(([img, h, file]) => ({ img, h, file, d }));
   // deleting a photo everywhere it shows: best of, photo of ticks, photo of the Liste folder
   M.deletePhotoOps = (sid, key) => {
-    const e = (db.especes || []).find((x) => x.id === sid) || {}, patch = {};
+    const e = M.esp.get(sid) || {}, patch = {};
     if (e.best && (e.best.img || e.best.url) === key) patch.best = null;
     const v = (db.vign || {})[sid] || {};
     if ((v.p || []).some((x) => x[2] === key) || (v.b && v.b[2] === key)) patch.hide = [...new Set([...(e.hide || []), key])];
@@ -126,7 +129,7 @@ export function buildModel(db) {
   // then the photos added to ticks of the lists
   // labels: the best-of photo's (espece.q), else the lifer photo's (the lifer tick's q)
   M.bestQ = (sid) => (M.esp.get(sid) || {}).q || null;
-  M.liferQ = (sid) => { const t = M.ticks.find((x) => x.e === sid && x.cle === LIFERS); return (t && t.q) || null; };
+  M.liferQ = (sid) => { const t = M.tick(sid, LIFERS); return (t && t.q) || null; };
   M.spQ = (sid) => M.bestQ(sid) || M.liferQ(sid);
   // one picture whatever its copy: same shooting day and time, same original file name
   M.picKey = (p) => (p && p.file && p.d ? [p.d, p.h || "", String(p.file).toLowerCase().replace(/\.(jpe?g|cr[23]|nef|arw|dng|tiff?|png|heic)$/, "")].join("|") : null);
@@ -169,7 +172,10 @@ export function buildModel(db) {
   };
 
   // what is still missing or inconsistent
-  M.checks = () => {
+  // computed once per state of the base (the model is rebuilt after every change)
+  let checksMemo = null;
+  M.checks = () => checksMemo || (checksMemo = computeChecks());
+  const computeChecks = () => {
     const out = { nested: [], yearMissing: [], undated: [], noCoords: new Map() };
     for (const l of M.listes) if (l.dans) {
       for (const t of M.speciesOf(l.cle)) if (!M.inList(t.e, l.dans)) out.nested.push({ t, liste: l.cle, parent: l.dans });
@@ -230,7 +236,7 @@ export function buildModel(db) {
       if (groups.has(k) && !M.sameObs(groups.get(k).ticks[0], t)) k += "|" + t.cle; // another observation the same day
       if (!groups.has(k)) groups.set(k, { e: t.e, d: t.d, ticks: [], near, gap, lieu: gap === 0, km: gap === 0 ? Math.round(distKm(near, t)) : null }); groups.get(k).ticks.push(t);
     }
-    out.srcDate = [...groups.values()].sort((a, b) => a.gap - b.gap || a.d.localeCompare(b.d));
+    out.srcDate = [...groups.values()].sort((a, b) => a.gap - b.gap || cmp(a.d, b.d));
     // the photo is the reference: a photo older than the tick (Photo France: the first photo ever; a year list:
     // the first photo of that year) means the tick is too late. One row per observation (species and day).
     const pg = new Map();
@@ -247,8 +253,8 @@ export function buildModel(db) {
     }
     // what moves with it: for Photo France, the lifer of the same day (same photo); a year list moves alone,
     // since the first photo of the year may have been taken elsewhere (zone lists follow their own check)
-    for (const g of pg.values()) { const base = M.ticks.find((x) => x.e === g.e && x.d === g.d && x.cle === g.cle); g.ticks = g.cle === PHOTO_FR ? M.ticks.filter((x) => (x.cle === PHOTO_FR || x.cle === LIFERS) && M.sameObs(base, x)) : [base]; }
-    out.photoEarlier = [...pg.values()].sort((a, b) => a.e.localeCompare(b.e) || a.d.localeCompare(b.d));
+    for (const g of pg.values()) { const base = ((M.bySp.get(g.e) || new Map()).get(g.cle) || []).find((x) => x.d === g.d); g.ticks = g.cle === PHOTO_FR ? M.ticks.filter((x) => (x.cle === PHOTO_FR || x.cle === LIFERS) && M.sameObs(base, x)) : [base]; }
+    out.photoEarlier = [...pg.values()].sort((a, b) => cmp(a.e, b.e) || cmp(a.d, b.d));
     // a zone list (region, department, commune) starts with the first photo taken inside it: the earliest dated
     // photo tick of any list (Photo France, Lifers, year lists, sub-zones, garden…) whose place is in the zone
     out.zoneFirst = [];
@@ -283,7 +289,9 @@ export function buildModel(db) {
   // back after the last tick of its day or before; the numbers in use are reused in that new order.
   // Within a day, the ticks that have a time (h, from the photo or Faune-France; never shown) go by time,
   // in the places of the timed ticks; the others keep their place.
-  M.renumber = (cle) => {
+  const renumMemo = new Map();
+  M.renumber = (cle) => { if (!renumMemo.has(cle)) renumMemo.set(cle, renumberOf(cle)); return renumMemo.get(cle); };
+  const renumberOf = (cle) => {
     const seq = (db.coches[cle] || []).filter((t) => t.n).sort((a, b) => a.n - b.n);
     const slots = seq.map((t) => t.n);
     const dated = seq.filter((t) => t.d);
@@ -295,14 +303,14 @@ export function buildModel(db) {
     });
     const keep = new Set(); for (let i = tail.length ? tailIx[tail.length - 1] : -1; i >= 0; i = prevIx[i]) keep.add(dated[i]);
     const order = seq.filter((t) => !t.d || keep.has(t));
-    dated.filter((t) => !keep.has(t)).sort((a, b) => a.d.localeCompare(b.d) || a.n - b.n).forEach((t) => {
+    dated.filter((t) => !keep.has(t)).sort((a, b) => cmp(a.d, b.d) || a.n - b.n).forEach((t) => {
       let at = 0; order.forEach((x, i) => { if (x.d && x.d <= t.d) at = i + 1; });
       if (!order.some((x) => x.d && x.d <= t.d)) { const first = order.findIndex((x) => x.d); at = first < 0 ? order.length : first; }
       order.splice(at, 0, t);
     });
     // within a day: timed ticks by time, in the places of the timed ticks
     const days = new Map(); order.forEach((t, i) => { if (t.d && t.h) { if (!days.has(t.d)) days.set(t.d, []); days.get(t.d).push(i); } });
-    for (const ix of days.values()) { const ts = ix.map((i) => order[i]).sort((a, b) => a.h.localeCompare(b.h) || a.n - b.n); ix.forEach((i, k) => { order[i] = ts[k]; }); }
+    for (const ix of days.values()) { const ts = ix.map((i) => order[i]).sort((a, b) => cmp(a.h, b.h) || a.n - b.n); ix.forEach((i, k) => { order[i] = ts[k]; }); }
     return order.map((t, i) => ({ t: { ...t, cle }, to: slots[i] })).filter((x) => x.t.n !== x.to);
   };
   return M;

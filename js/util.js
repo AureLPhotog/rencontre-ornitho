@@ -1,4 +1,8 @@
 // Small shared helpers: text, dates, DOM.
+// French alphabetical order (much faster than localeCompare in long sorts), and plain order for ISO dates / ids
+export const collator = new Intl.Collator("fr");
+export const byFr = (a, b) => collator.compare(a, b);
+export const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

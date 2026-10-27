@@ -80,9 +80,12 @@ function fromCocheurs(rows) {
 }
 
 // ---------- proposals ----------
-// kinds: add (new tick), date (undated tick gets a date), earlier (an earlier date than the app's), place (coordinates or place missing)
+// kinds: add (new tick), date (undated tick gets a date), place (coordinates missing), name (place name missing).
+// What is in the app is the reference: an import only adds what is missing and fills what is empty, it never
+// changes a date or a place the app has. A different date is only noted (diffs): it becomes a question in À faire,
+// unless you already answered it there.
 function propose(obs, source, target) {
-  const P = [], push = (x) => P.push({ id: P.length, ...x });
+  const P = [], push = (x) => P.push({ id: P.length, ...x }); P.diffs = [];
   const zones = M.listes.filter((l) => l.deps || l.communes), spots = M.listes.filter((l) => l.lieux && l.lieux.length);
   const byKey = new Map(); // first observation per (list, species) or (year list, scope, species)
   const keep = (k, o) => { const cur = byKey.get(k); if (!cur || (o.d && (!cur.d || o.d < cur.d))) byKey.set(k, o); };
@@ -115,7 +118,7 @@ function propose(obs, source, target) {
       const ok = source === "cocheurs" || (isYear ? (scope === "fr" ? hasPF : hasLif) : (l && l.type === "pays") || hasPF);
       push({ kind: "add", cle, sid, o, checked: ok, why: ok ? "nouvelle" : scope === "x" ? "pas encore de lifer photo" : "pas encore de photo France", newList: isYear && !l ? year : null });
     } else if (!t.d && o.d) push({ kind: "date", cle, sid, o, t, checked: true, why: `date manquante dans l'appli : ${fmtShort(o.d)}` });
-    else if (o.d && t.d && o.d !== t.d) push({ kind: "earlier", cle, sid, o, t, checked: false, why: `${source === "cocheurs" ? "cocheurs" : "première donnée"} ${fmtShort(o.d)} · appli ${fmtShort(t.d)} (${srcName(t.sd)})`, hide: o.d > t.d && source !== "cocheurs", later: o.d > t.d });
+    else if (o.d && t.d && o.d !== t.d) P.diffs.push({ cle, sid, o, t });
     else if (t.lat == null && o.lat != null) push({ kind: "place", cle, sid, o, t, checked: true, why: `coordonnées manquantes${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` });
   }
   // ticks of the same species and day, anywhere, without coordinates: the observation gives them
@@ -129,7 +132,7 @@ function propose(obs, source, target) {
     }
     for (const t of M.ticks) if (t.d && t.lat == null) { const o = byDay.get(t.e + "|" + t.d); if (o && !P.some((x) => x.t === t)) push({ kind: "place", cle: t.cle, sid: t.e, o, t, checked: true, why: `coordonnées manquantes, même jour${t.l ? ` · appli : ${t.l} (${srcName(t.sl)})` : ""}` }); }
   }
-  return P; // hidden ones (a later first sighting) are not offered, but go to the to-do list as date differences
+  return P;
 }
 
 // ---------- screen ----------
@@ -169,15 +172,15 @@ function run(ctx) {
   const msg = $("#imp-msg"); msg.className = "msg ok"; msg.textContent = `${ctx.obs.length} ${plural(ctx.obs.length, "ligne")} lues, ${ctx.obs.filter((o) => o.sid).length} reconnues.`;
   ctx.all = propose(ctx.obs, ctx.src, ctx.target);
   if (window.__roDebug) window.__roDebug.ctx = ctx;
-  review($("#imp-res"), ctx.all.filter((x) => !x.hide), ctx);
+  review($("#imp-res"), ctx.all, ctx);
 }
-const KIND = { add: "Ajouter", date: "Dater", earlier: "Date différente", place: "Localiser", name: "Nommer le lieu" };
+const KIND = { add: "Ajouter", date: "Dater", place: "Localiser", name: "Nommer le lieu" };
 function review(el, props, ctx) {
   const groups = new Map(); props.forEach((p) => { if (!groups.has(p.cle)) groups.set(p.cle, []); groups.get(p.cle).push(p); });
   const order = [...groups.keys()].sort((a, b) => M.listes.findIndex((l) => l.cle === a) - M.listes.findIndex((l) => l.cle === b));
   const nom = (cle) => (M.liste.get(cle) || { nom: "YL " + cle.slice(2) }).nom;
   const line = (p) => `<label class="chk prop"><input type="checkbox" data-p="${p.id}" ${p.checked ? "checked" : ""}><span><b>${esc(M.name(p.sid))}</b> · ${KIND[p.kind]} <small>${esc(p.why)}${p.o.l && p.kind !== "name" ? " · " + esc(p.o.l) : ""}${p.o.d && p.kind === "add" ? " · " + fmtShort(p.o.d) : ""}</small></span></label>`;
-  el.innerHTML = `${ctx.src === "cocheurs" ? cocheursMissing(ctx) : ""}
+  el.innerHTML = `${diffsPanel(ctx)}${ctx.src === "cocheurs" ? cocheursMissing(ctx) : ""}
     ${ctx.unknown.size ? `<details class="panel" ${ctx.unknown.size < 15 ? "open" : ""}><summary>${ctx.unknown.size} ${plural(ctx.unknown.size, "nom")} non reconnu${ctx.unknown.size > 1 ? "s" : ""}, ignoré${ctx.unknown.size > 1 ? "s" : ""} pour l'instant</summary>
       <p class="cap">Si c'est une espèce que tu as sous un autre nom, associe-la : l'appli retiendra ce nom et ce nom latin pour les prochains imports. Les hybrides et les « sp. » restent ignorés.</p>
       <datalist id="dl-sp">${M.db.especes.map((e) => `<option value="${esc(e.n)}">`).join("")}</datalist>
@@ -186,7 +189,7 @@ function review(el, props, ctx) {
     ${props.length ? order.map((cle) => { const g = groups.get(cle); return `<section class="panel"><div class="row between"><h3 class="minor" style="margin:0"><span class="chip-s" style="--c:${M.color(cle) || "#9A7400"}">${esc(nom(cle))}</span> ${g.length} ${plural(g.length, "proposition")}</h3><button type="button" class="linkish" data-all="${cle}">tout cocher / décocher</button></div>
       <div class="props">${g.slice(0, 400).map(line).join("")}${g.length > 400 ? `<p class="cap">… et ${g.length - 400} autres, comptées si le groupe est coché.</p>` : ""}</div></section>`; }).join("")
       + `<div class="row sticky-act"><button class="btn btn-primary btn-lg" id="imp-go" type="button">Enregistrer la sélection</button><span class="cap" id="imp-count"></span></div>`
-      : `<p class="empty">Rien à ajouter ni à compléter : l'appli a déjà tout ce que contient ce fichier.</p>${ctx.src !== "cocheurs" ? `<div class="row"><button class="btn btn-primary" id="imp-go" type="button">Garder ces données pour les vérifications</button></div>` : ""}`}`;
+      : `<p class="empty">Rien à ajouter ni à compléter : l'appli a déjà tout ce que contient ce fichier.</p>${ctx.src !== "cocheurs" ? `<div class="row"><button class="btn btn-primary" id="imp-go" type="button">Garder ces données pour les vérifications</button></div>` : openDiffs(ctx).length ? `<div class="row"><button class="btn btn-primary" id="imp-go" type="button">Mettre les dates différentes dans À faire</button></div>` : ""}`}`;
   const byId = new Map(props.map((p) => [String(p.id), p])); // ids are not positions: hidden proposals were filtered out
   const count = () => { const n = props.filter((p) => p.checked).length; const c = $("#imp-count"); if (c) c.textContent = `${n} ${plural(n, "changement")} sélectionné${n > 1 ? "s" : ""}`; };
   $$("[data-p]", el).forEach((i) => i.addEventListener("change", () => { byId.get(i.dataset.p).checked = i.checked; count(); }));
@@ -203,6 +206,57 @@ function review(el, props, ctx) {
     toast(`« ${name} » associé à ${e.n}.`); setTimeout(() => run(ctx), 50);
   }));
   const go2 = $("#imp-go"); if (go2) go2.addEventListener("click", () => apply(props.filter((p) => p.checked), ctx));
+  wireReset(el, ctx);
+}
+// ---------- what the app has already decided ----------
+// a date of the app confirmed in À faire (« Garder », vf) or a question about it already answered is validated:
+// an import never brings it back. « Reprendre à 0 » (three confirmations) puts all of that back in À faire.
+const SRC_NAME = { ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs" };
+const dateTasks = (ctx) => M.db.taches.filter((t) => t.kind === "choose-date" && (t.src || "cocheurs") === ctx.src && (ctx.src !== "cocheurs" || t.cle === ctx.target));
+// the date differences that would still be a question (not validated): only cocheurs makes tasks of them; for
+// Faune-France / eBird the check of À faire compares the app with the data kept from the file
+function openDiffs(ctx) {
+  const tasks = dateTasks(ctx);
+  return (ctx.all.diffs || []).filter((x) => x.t.vf !== x.t.d && !tasks.some((t) => t.sid === x.sid && t.cle === x.cle));
+}
+function validated(ctx) {
+  const inFile = new Set(ctx.obs.filter((o) => o.sid).map((o) => o.sid));
+  const ticks = M.ticks.filter((t) => t.vf && inFile.has(t.e) && (ctx.src !== "cocheurs" || t.cle === ctx.target));
+  const tasks = dateTasks(ctx).filter((t) => t.fait).concat(ctx.src === "cocheurs" ? M.db.taches.filter((t) => t.kind === "cocheurs" && t.cle === ctx.target && t.fait) : []);
+  return { ticks, tasks };
+}
+function diffsPanel(ctx) {
+  const d = ctx.all.diffs || [], open = openDiffs(ctx), v = validated(ctx), nv = v.ticks.length + v.tasks.length;
+  return `<section class="panel imp-rule"><h3 class="minor">Ce que tu as validé dans l'appli fait foi</h3>
+    <p class="cap">L'import ajoute seulement ce qui manque (espèces, dates, coordonnées, noms de lieux vides) : il ne change aucune date ni aucun lieu que l'appli a déjà.${d.length ? ` ${d.length} ${plural(d.length, "date différente", "dates différentes")} dans le fichier : l'appli les garde. ${ctx.src === "cocheurs" ? (open.length ? `${open.length} ${open.length > 1 ? "deviendront des questions" : "deviendra une question"} dans À faire (« Dates différentes appli / cocheurs »)${d.length > open.length ? " ; les autres sont déjà tranchées" : ""}.` : "Elles sont toutes déjà tranchées.") : "Celles que tu n'as pas encore confirmées apparaîtront dans À faire (« Pas d'accord avec " + SRC_NAME[ctx.src] + " »)."}` : ""}</p>
+    ${nv ? `<details class="reset"><summary>Reprendre à 0 avec ce fichier…</summary><p class="cap">Remet dans À faire tout ce que tu as validé pour ${ctx.src === "cocheurs" ? "cette liste" : "les espèces de ce fichier"} : ${[v.ticks.length ? `${v.ticks.length} ${plural(v.ticks.length, "date confirmée", "dates confirmées")}` : "", v.tasks.length ? `${v.tasks.length} ${plural(v.tasks.length, "question réglée", "questions réglées")}` : ""].filter(Boolean).join(" et ")}. Rien n'est changé dans tes coches : tu devras seulement tout re-valider. « Annuler » dans À faire le défait.</p>
+      <div class="reset-step" id="rs"><button type="button" class="btn btn-danger" data-rs="1">Reprendre à 0…</button></div></details>` : ""}</section>`;
+}
+function wireReset(el, ctx) {
+  const box = $("#rs", el); if (!box) return;
+  const v = validated(ctx), nv = v.ticks.length + v.tasks.length;
+  const STEPS = [null,
+    [`Es-tu sûr de vouloir reprendre à 0 avec ce fichier ${SRC_NAME[ctx.src]} ?`, "Oui, je suis sûr"],
+    [`Cela remettra dans À faire les ${nv} ${plural(nv, "validation")} que tu as ${nv > 1 ? "faites" : "faite"} dans l'appli. Veux-tu continuer ?`, "Oui, continuer"],
+    ["Vraiment ? Tout ce que tu as tranché sera à refaire.", "Oui, vraiment : reprendre à 0"]];
+  const show = (i) => {
+    if (i === 0) { box.innerHTML = '<button type="button" class="btn btn-danger" data-rs="1">Reprendre à 0…</button>'; return; }
+    box.innerHTML = `<p><b>${esc(STEPS[i][0])}</b></p><div class="row"><button type="button" class="btn" data-rs="0">Non, garder ce qui est validé</button><button type="button" class="btn btn-danger" data-rs="${i + 1}">${esc(STEPS[i][1])}</button></div>`;
+    const no = box.querySelector('[data-rs="0"]'); if (no) no.focus();
+  };
+  box.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-rs]"); if (!b) return;
+    const i = +b.dataset.rs; if (i <= 3) { show(i); return; }
+    resetAll(ctx, v); show(0); setTimeout(() => run(ctx), 50);
+  });
+}
+function resetAll(ctx, v) {
+  const ops = [];
+  v.ticks.forEach((t) => ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: { vf: null } }));
+  v.tasks.forEach((t) => ops.push({ kind: "set-tache", id: t.id, patch: { fait: null, det: null } }));
+  if (ctx.src !== "cocheurs") ops.push({ kind: "set-source", source: ctx.src, data: digest(ctx.obs, M.db.sources[ctx.src]) });
+  S.apply(ops, `Reprise à 0 avec ${SRC_NAME[ctx.src]}${ctx.src === "cocheurs" ? " (" + (M.liste.get(ctx.target) || {}).nom + ")" : ""} : ${v.ticks.length + v.tasks.length} validations remises dans À faire`);
+  toast("Repris à 0 : tes validations sont de nouveau dans À faire. « Annuler » dans À faire pour revenir en arrière.");
 }
 function cocheursMissing(ctx) {
   const inFile = new Set(ctx.obs.filter((o) => o.sid).map((o) => o.sid));
@@ -224,8 +278,10 @@ export function digest(obs, old) {
 }
 function apply(sel, ctx) {
   const keepSrc = ctx.src === "ff" || ctx.src === "ebird";
-  if (!sel.length && !keepSrc) { toast("Rien de sélectionné."); return; }
-  const ops = [], newYears = new Set(), next = {}, done = new Set();
+  // a date of cocheurs different from the app's: a question in À faire (the app's date stays until you answer)
+  const asks = ctx.src === "cocheurs" ? openDiffs(ctx).map((x) => ({ kind: "add-tache", tache: { id: "imp-" + uid(), cat: "Dates différentes appli / cocheurs", kind: "choose-date", sid: x.sid, cle: x.cle, other: x.o.d, src: "cocheurs" } })) : [];
+  if (!sel.length && !keepSrc && !asks.length) { toast("Rien de sélectionné."); return; }
+  const ops = [...asks], newYears = new Set(), next = {};
   if (keepSrc) ops.push({ kind: "set-source", source: ctx.src, data: digest(ctx.obs, M.db.sources[ctx.src]), label: `Données ${ctx.src === "ff" ? "Faune-France" : "eBird"} gardées pour les vérifications` });
   const place = (o) => ({ l: o.l || null, lat: o.lat, lon: o.lon, p: o.p || null });
   for (const p of sel.slice().sort((a, b) => (a.o.d || "9").localeCompare(b.o.d || "9"))) {
@@ -237,18 +293,20 @@ function apply(sel, ctx) {
       Object.entries(place(p.o)).forEach(([k, v]) => { if (v != null && v !== "") tick[k] = v; });
       if (fixedSpot(l) && (tick.l || tick.lat != null)) tick.sl = "fixe";
       ops.push({ kind: "add-tick", cle: p.cle, tick, src: ctx.src });
-    } else if (p.kind === "date" || p.kind === "earlier") {
-      const pl = p.t.lat == null || p.kind === "earlier" ? place(p.o) : {};
+    } else if (p.kind === "date") {
+      // an undated tick gets the date; its place only where the app has none
+      const pl = p.t.lat == null && !p.t.l ? place(p.o) : {};
       if (Object.keys(pl).length && fixedSpot(l)) pl.sl = "fixe";
       ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { d: p.o.d, ...pl }, src: ctx.src });
-      // same species, same old date in other lists: the same observation, it moves with it (dates stay linked)
-      if (p.t.d) M.ticks.filter((x) => x !== p.t && M.sameObs(p.t, x) && M.sameYearOk(x, p.o.d) && !sel.some((q) => q.t === x) && !done.has(x))
-        .forEach((x) => { done.add(x); ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: { d: p.o.d, ...(Object.keys(pl).length && !fixedSpot(M.liste.get(x.cle)) ? (({ sl, ...r }) => r)(pl) : {}) }, src: ctx.src }); });
-    } else if (p.kind === "name") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src });
-    else if (p.kind === "place") ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { ...place(p.o), ...(fixedSpot(l) ? { sl: "fixe" } : {}) }, src: ctx.src });
+    } else if (p.kind === "name") { if (!p.t.l) ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: { l: p.o.l }, src: ctx.src }); }
+    else if (p.kind === "place") {
+      // coordinates where the app has none; the place name only if the app has none either
+      const pl = { lat: p.o.lat, lon: p.o.lon, ...(p.t.l ? {} : { l: p.o.l || null }), ...(p.t.p ? {} : { p: p.o.p || null }), ...(fixedSpot(l) ? { sl: "fixe" } : {}) };
+      if (p.t.lat == null) ops.push({ kind: "set-tick", cle: p.cle, id: p.t.id, patch: pl, src: ctx.src });
+    }
   }
-  // garden, office: the same observation in the other lists (same species, same day, within 1 km or not placed)
-  // takes the fixed place too, so the lists stay linked
+  // garden, office: the same observation in the other lists (same species, same day) takes the fixed place too,
+  // if it has no place at all (a place set in the app stays)
   for (const op of ops.slice()) {
     if (op.kind !== "add-tick" && op.kind !== "set-tick") continue;
     if (!fixedSpot(M.liste.get(op.cle))) continue;
@@ -256,11 +314,11 @@ function apply(sel, ctx) {
     const t = op.kind === "add-tick" ? op.tick : { ...old, ...op.patch };
     if (!t || !t.d || t.lat == null) continue;
     const spot = { l: t.l || null, lat: t.lat, lon: t.lon, p: null, sl: "fixe" };
-    M.ticks.filter((x) => x.e === t.e && x.d === t.d && x.cle !== op.cle && !fixedSpot(M.liste.get(x.cle)) && (x.lat == null || distKm(x, t) < 1) && (x.l !== spot.l || x.lat !== spot.lat || x.lon !== spot.lon))
+    M.ticks.filter((x) => x.e === t.e && x.d === t.d && x.cle !== op.cle && !fixedSpot(M.liste.get(x.cle)) && x.lat == null && !x.l)
       .forEach((x) => ops.push({ kind: "set-tick", cle: x.cle, id: x.id, patch: spot }));
   }
   const label = { ff: "Import Faune-France", ebird: "Import eBird", cocheurs: `Import cocheurs (${(M.liste.get(ctx.target) || {}).nom})` }[ctx.src];
-  S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}`);
+  S.apply(ops, `${label} : ${sel.length} ${plural(sel.length, "changement")}${asks.length ? `, ${asks.length} ${plural(asks.length, "date")} à trancher` : ""}`);
   toast(`${sel.length} ${plural(sel.length, "changement")} enregistré${sel.length > 1 ? "s" : ""}.${keepSrc ? " Les dates du fichier servent maintenant aux vérifications de « À faire »." : ""}`);
   go(keepSrc ? "#/a-faire" : "#/journal");
 }

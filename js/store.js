@@ -3,7 +3,13 @@
 // (the "pending" operations). What you see is server + pending. Sending builds ONE commit for all pending
 // changes: if someone (another device) committed in between, the changes are replayed on the newer files,
 // so nothing is overwritten.
-import { b64decode, stringifyRows, store, uid } from "./util.js";
+import { b64decode, stringifyRows, store, unstore, uid } from "./util.js";
+
+// a tiny key-value store in IndexedDB
+let idb = null;
+const idbOpen = () => idb || (idb = new Promise((ok, ko) => { const r = indexedDB.open("rencontre-ornitho", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => ok(r.result); r.onerror = () => { idb = null; ko(r.error); }; }));
+const idbGet = async (k) => { const d = await idbOpen(); return new Promise((ok, ko) => { const q = d.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ko(q.error); }); };
+const idbSet = async (k, v) => { const d = await idbOpen(); return new Promise((ok, ko) => { const tx = d.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = () => ok(); tx.onerror = () => ko(tx.error); tx.onabort = () => ko(tx.error); }); };
 
 const API = "https://api.github.com";
 const CFG_KEY = "ro.config", CACHE_KEY = "ro.cache.v1", PENDING_KEY = "ro.pending.v1";
@@ -58,7 +64,7 @@ export function opFiles(op) {
     case "set-liste": return [P.listes];
     case "add-espece": case "set-espece": return [P.especes];
     case "add-lieu": return [P.lieux];
-    case "set-tache": case "add-tache": return [P.taches];
+    case "set-tache": case "add-tache": case "del-tache": return [P.taches];
     case "set-serie": return [SERIES];
     case "set-source": return [sourcePath(op.source)];
     default: return [];
@@ -77,6 +83,7 @@ export function applyOp(db, op) {
     case "add-lieu": { db.lieux = db.lieux.filter((l) => l.nom !== op.lieu.nom); db.lieux.unshift({ ...op.lieu }); db.lieux = db.lieux.slice(0, 400); break; }
     case "add-tache": if (!db.taches.some((t) => t.id === op.tache.id)) db.taches.push({ ...op.tache }); break;
     case "set-tache": { const t = db.taches.find((x) => x.id === op.id); if (t) patchObj(t, op.patch); break; }
+    case "del-tache": db.taches = db.taches.filter((t) => t.id !== op.id); break;
     case "set-serie": { db.series = db.series || {}; if (op.items && op.items.length) db.series[op.key] = op.items; else delete db.series[op.key]; break; }
     case "set-source": db.sources[op.source] = op.data; break;
   }
@@ -87,14 +94,18 @@ export function applyOp(db, op) {
 export class Store {
   constructor() {
     this.cfg = { ...DEFAULT_CFG, ...(store(CFG_KEY) || {}) };
-    const c = store(CACHE_KEY) || {};
-    this.files = c.files || {};          // path -> { sha, text } as last read from GitHub
-    this.commit = c.commit || null;      // commit those files come from
-    this.images = c.images || {};        // image path -> blob sha (the photos are fetched only when shown)
+    // the copy of the base read from GitHub is big (several MB): it lives in IndexedDB, read at start (this.boot);
+    // the changes not yet sent are small and stay in localStorage, written at once
+    this.files = {};                     // path -> { sha, text } as last read from GitHub
+    this.commit = null;                  // commit those files come from
+    this.images = {};                    // image path -> blob sha (the photos are fetched only when shown)
     this.pending = store(PENDING_KEY) || [];
     this.undos = store(UNDO_KEY) || [];
     this.listeners = new Set(); this.state = "idle"; this.error = null; this.flushing = null;
+    this.version = 0;                    // goes up each time the base itself changes (not the sending status)
+    this.loaded = false;
     this._rebuild();
+    this.boot = this._loadCache().catch((e) => console.error(e)).then(() => { this.loaded = true; this._rebuild(); this.version++; });
     window.addEventListener("online", () => this.sync());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) this.sync(); });
   }
@@ -103,7 +114,30 @@ export class Store {
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   _emit() { this.listeners.forEach((fn) => { try { fn(this); } catch (e) { console.error(e); this.errorAt = String(e.stack || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← "); this.renderError = e; } }); }
   _status(state, error = null) { this.state = state; this.error = error; this._emit(); }
-  _save() { store(CACHE_KEY, { files: this.files, commit: this.commit, images: this.images }); store(PENDING_KEY, this.pending); }
+  async _loadCache() {
+    let c = null;
+    try { c = await idbGet(CACHE_KEY); } catch (e) { console.warn("IndexedDB", e); }
+    let old = false;
+    if (!c) { c = store(CACHE_KEY); old = !!c; } // the copy kept by the older versions of the app: moved to IndexedDB
+    if (c && c.files) { this.files = c.files; this.commit = c.commit || null; this.images = c.images || {}; }
+    if (old) this._saveCache();
+  }
+  // the copy of the base: IndexedDB (no size limit to speak of); localStorage only if IndexedDB is not there
+  _saveCache() {
+    const c = { files: this.files, commit: this.commit, images: this.images };
+    this._cacheW = (this._cacheW || Promise.resolve()).then(() => idbSet(CACHE_KEY, c)).then(() => unstore(CACHE_KEY))
+      .catch((e) => { console.warn("IndexedDB", e); store(CACHE_KEY, c); });
+    return this._cacheW;
+  }
+  // the changes not yet sent must never be lost: if the browser memory is full, the « Annuler » history goes first
+  _savePending() {
+    const put = () => { localStorage.setItem(PENDING_KEY, JSON.stringify(this.pending)); };
+    try { put(); this.saveError = null; return true; } catch (_) {}
+    try { unstore(UNDO_KEY); this.undos = []; unstore(CACHE_KEY); put(); this.saveError = null; return true; } catch (_) {}
+    this.saveError = "La mémoire de l'appli est pleine : tes derniers changements ne sont pas encore gardés sur cet appareil. Reste en ligne le temps qu'ils partent sur GitHub.";
+    return false;
+  }
+  _save() { this._savePending(); return this._saveCache(); }
   _rebuild() { const db = dbFromFiles(this.files); this.pending.forEach((op) => applyOp(db, op)); this.db = db; }
   setConfig(cfg) { this.cfg = { ...this.cfg, ...cfg }; store(CFG_KEY, this.cfg); }
 
@@ -127,41 +161,58 @@ export class Store {
   repoPath(p) { return `/repos/${encodeURIComponent(this.cfg.owner)}/${encodeURIComponent(this.cfg.repo)}${p}`; }
   async testAccess() { const r = await this.gh("GET", this.repoPath("")); if (!r.permissions || !r.permissions.push) throw new GitHubError(403, "La clé peut lire le dépôt mais pas y écrire."); return r; }
 
+  // the last commit of the branch (one small request); the list of files only when it changed
   async _head() {
     const c = await this.gh("GET", this.repoPath(`/commits/${encodeURIComponent(this.cfg.branch)}`));
-    const tree = await this.gh("GET", this.repoPath(`/git/trees/${c.commit.tree.sha}?recursive=1`));
+    return { commit: c.sha, tree: c.commit.tree.sha };
+  }
+  async _tree(head) {
+    const tree = await this.gh("GET", this.repoPath(`/git/trees/${head.tree}?recursive=1`));
     const blobs = {}, images = {};
     (tree.tree || []).forEach((e) => { if (e.type !== "blob") return; if (/^data\/.+\.json$/.test(e.path)) blobs[e.path] = e.sha; else if (/^data\/photos\/.+\.jpe?g$/i.test(e.path)) images[e.path] = e.sha; });
-    return { commit: c.sha, tree: c.commit.tree.sha, blobs, images };
+    return { blobs, images };
   }
   async _blob(sha) { const b = await this.gh("GET", this.repoPath(`/git/blobs/${sha}`)); return b64decode(b.content); }
-  // bring the server copy up to date with the files of `head`
+  // bring the server copy up to date with the files of `head` (only the files that changed are read, a few at a time);
+  // says whether anything changed
   async _pull(head) {
-    const next = {};
-    for (const [path, sha] of Object.entries(head.blobs)) next[path] = this.files[path] && this.files[path].sha === sha ? this.files[path] : { sha, text: await this._blob(sha) };
-    this.files = next; this.commit = head.commit;
+    const { blobs, images } = await this._tree(head);
+    const next = {}, todo = [];
+    for (const [path, sha] of Object.entries(blobs)) { if (this.files[path] && this.files[path].sha === sha) next[path] = this.files[path]; else todo.push([path, sha]); }
+    let i = 0; const worker = async () => { while (i < todo.length) { const [path, sha] = todo[i++]; next[path] = { sha, text: await this._blob(sha) }; } };
+    await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
+    const gone = Object.keys(this.files).some((p) => !next[p]);
+    const imgChanged = Object.keys(images).length !== Object.keys(this.images).length || Object.entries(images).some(([p, s]) => this.images[p] !== s);
+    this.files = next; this.commit = head.commit; this.images = images;
+    return !!todo.length || gone || imgChanged;
   }
 
   // read what changed on GitHub, then send what is waiting
-  async sync() {
-    if (!this.ready || this.flushing) return this.flushing;
+  sync() {
+    if (!this.loaded) return this.boot.then(() => this.sync());
+    if (!this.ready) return Promise.resolve();
+    if (this.flushing) { this.again = true; return this.flushing; }
     this.flushing = (async () => {
       try {
         this._status("busy");
         for (let attempt = 0; attempt < 4; attempt++) {
           const head = await this._head();
-          if (head.commit !== this.commit) await this._pull(head);
-          this.images = head.images || {};
-          if (!this.pending.length) { this._rebuild(); this._save(); this._status("ok"); return; }
+          // someone (another device, a script) changed the base: what you see is rebuilt on it, with your changes on top
+          if (head.commit !== this.commit) { if (await this._pull(head)) { this._rebuild(); this.version++; } this._saveCache(); }
+          if (!this.pending.length) { this._status("ok"); return; }
           const ok = await this._push(head);
-          if (ok) { this._rebuild(); this._save(); this._status("ok"); return; }
+          if (ok) { this._savePending(); this._saveCache(); this._status("ok"); return; }
         }
         throw new GitHubError(409, "Le dépôt change trop vite, réessaie.");
       } catch (e) {
-        try { this._rebuild(); this._save(); } catch (_) {}
+        try { this._savePending(); } catch (_) {}
         this.errorAt = e.status === undefined ? String(e.stack || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← ") : "";
         try { this._status(e.status === 0 ? "offline" : "error", e.message); } catch (_) {}
-      } finally { this.flushing = null; }
+      } finally {
+        this.flushing = null;
+        // a change made while sending leaves at once, after this sending
+        if (this.again || (this.pending.length && this.state === "ok")) { this.again = false; if (this.state !== "offline") setTimeout(() => this.sync(), 0); }
+      }
     })();
     return this.flushing;
   }
@@ -203,7 +254,7 @@ export class Store {
     }
     this.pending.push(...ops);
     if (!undo && back.length) { this.undos = [...this.undos, { label: label || ops[0].label, at: Date.now(), ops: back }].slice(-30); store(UNDO_KEY, this.undos); }
-    this._save(); this._emit(); this.sync();
+    this.version++; this._savePending(); this._emit(); this.sync();
   }
   undoLast() {
     const u = this.undos[this.undos.length - 1]; if (!u) return null;
@@ -246,7 +297,7 @@ export class Store {
       const cur = await this.gh("GET", `${url}?ref=${encodeURIComponent(this.cfg.branch)}`).catch(() => null);
       r = await send(cur && cur.sha);
     }
-    const sha = r.content.sha; this.images[path] = sha; this._save();
+    const sha = r.content.sha; this.images[path] = sha; this._saveCache();
     this._img = this._img || new Map(); this._img.set(sha, Promise.resolve(URL.createObjectURL(blob)));
     try { const c = await caches.open("ro-photos-v1"); await c.put(`https://ro-photos.invalid/${sha}.jpg`, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })); } catch (_) {}
     return sha;
@@ -260,12 +311,12 @@ export class Store {
       const commit = await this.gh("POST", this.repoPath("/git/commits"), { message, tree: tree.sha, parents: [c.sha] });
       try { await this.gh("PATCH", this.repoPath(`/git/refs/heads/${encodeURIComponent(this.cfg.branch)}`), { sha: commit.sha, force: false }); }
       catch (e) { if (e.status === 422 || e.status === 409) continue; throw e; }
-      paths.forEach((p) => { delete this.images[p]; }); this._save();
+      paths.forEach((p) => { delete this.images[p]; }); this._saveCache();
       return paths.length;
     }
     throw new Error("Le dépôt change trop vite, réessaie.");
   }
-  resetCache() { this.files = {}; this.commit = null; this._rebuild(); this._save(); }
+  resetCache() { this.files = {}; this.commit = null; this.images = {}; this._rebuild(); this.version++; this._saveCache(); }
 }
 
 // every tick says where its date (sd) and its place (sl) come from: op.src, or a change made in the app
@@ -283,7 +334,9 @@ function inverseOp(db, op) {
     case "set-serie": return { kind: "set-serie", key: op.key, items: (db.series || {})[op.key] || null };
     case "add-tick": return (db.coches[op.cle] || []).some((t) => t.id === op.tick.id) ? null : { kind: "del-tick", cle: op.cle, id: op.tick.id };
     case "del-tick": { const t = (db.coches[op.cle] || []).find((x) => x.id === op.id); return t ? { kind: "add-tick", cle: op.cle, tick: JSON.parse(JSON.stringify(t)) } : null; }
-    default: return null; // new lists, species, places, tasks and sources stay (harmless)
+    case "add-tache": return db.taches.some((t) => t.id === op.tache.id) ? null : { kind: "del-tache", id: op.tache.id };
+    case "del-tache": { const t = db.taches.find((x) => x.id === op.id); return t ? { kind: "add-tache", tache: JSON.parse(JSON.stringify(t)) } : null; }
+    default: return null; // new lists, species, places and sources stay (harmless)
   }
 }
 function stampSource(op) {

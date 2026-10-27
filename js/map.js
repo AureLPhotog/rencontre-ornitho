@@ -6,11 +6,15 @@ const LAYERS = {
   monde: () => L().tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, attribution: "© Esri" }),
 };
 const LYON = [45.76, 4.84];
+// every map made, so the ones of a screen that is gone are removed (else each keeps listening to the window)
+const MAPS = new Set();
+const keep = (map) => { MAPS.add(map); return map; };
+export function dropMaps() { for (const m of MAPS) { const c = m.getContainer(); if (!c || !c.isConnected) { MAPS.delete(m); try { m.stop(); m.remove(); } catch (_) {} } } }
 
 export function mapPicker(el, { lat, lon, others = [] } = {}, onPick) {
   if (!L()) { el.innerHTML = '<p class="cap">La carte n\'a pas pu se charger (pas de réseau ?). Tu peux taper les coordonnées.</p>'; return { set() {}, destroy() {} }; }
   const has = lat != null && lon != null;
-  const map = L().map(el, { zoomControl: true, attributionControl: true }).setView(has ? [lat, lon] : LYON, has ? 14 : 9);
+  const map = keep(L().map(el, { zoomControl: true, attributionControl: true })).setView(has ? [lat, lon] : LYON, has ? 14 : 9);
   let base = LAYERS.plan().addTo(map);
   const bases = { "Plan": base, "Photo aérienne (France)": LAYERS.ign(), "Satellite (monde)": LAYERS.monde() };
   L().control.layers(bases, null, { position: "topright" }).addTo(map);
@@ -29,7 +33,7 @@ export function mapPicker(el, { lat, lon, others = [] } = {}, onPick) {
     navigator.geolocation.getCurrentPosition((p) => { const ll = L().latLng(p.coords.latitude, p.coords.longitude); map.setView(ll, 15); pick(ll, "gps"); },
       () => { onPick && onPick(null, null, "gps-refusé"); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   }
-  setTimeout(() => map.invalidateSize(), 60);
+  setTimeout(() => { if (MAPS.has(map)) map.invalidateSize(); }, 60);
   return {
     set(la, lo, zoom) { if (la == null || lo == null) return; pin.setLatLng([la, lo]).setOpacity(1); map.setView([la, lo], zoom || Math.max(map.getZoom(), 13)); },
     locate, map, destroy() { map.remove(); },
@@ -38,20 +42,20 @@ export function mapPicker(el, { lat, lon, others = [] } = {}, onPick) {
 
 export function mapView(el, points) {
   if (!L() || !points.length) return null;
-  const map = L().map(el, { zoomControl: true, scrollWheelZoom: false });
+  const map = keep(L().map(el, { zoomControl: true, scrollWheelZoom: false }));
   LAYERS.plan().addTo(map);
   // the bigger, more important points last, so they stay on top
   const sorted = points.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
   const g = L().featureGroup(sorted.map((p) => L().circleMarker([p.lat, p.lon], { radius: p.r || 6, color: p.stroke || p.color || "#0A7895", fillColor: p.color || "#0A7895", weight: p.stroke ? 4 : 2, fillOpacity: p.z ? 0.9 : 0.55 }).bindPopup(() => { if (!p._el) { p._el = document.createElement("div"); p._el.innerHTML = p.html; } return p._el; }, { maxWidth: 280, minWidth: 200, autoPanPadding: [10, 10] }))).addTo(map);
   map.fitBounds(g.getBounds().pad(0.3), { maxZoom: 13 });
-  setTimeout(() => map.invalidateSize(), 60);
+  setTimeout(() => { if (MAPS.has(map)) map.invalidateSize(); }, 60);
   return map;
 }
 
 // every tick of a list on one big map: a popup is built only when its point is opened
 export function listMap(el, points, onOpen) {
   if (!L()) { el.innerHTML = '<p class="cap">La carte n\'a pas pu se charger (pas de réseau ?).</p>'; return null; }
-  const map = L().map(el, { zoomControl: true });
+  const map = keep(L().map(el, { zoomControl: true }));
   const base = LAYERS.plan().addTo(map);
   L().control.layers({ "Plan": base, "Photo aérienne (France)": LAYERS.ign(), "Satellite (monde)": LAYERS.monde() }, null, { position: "topright" }).addTo(map);
   // a point holding several ticks shows how many
@@ -63,7 +67,7 @@ export function listMap(el, points, onOpen) {
   const g = L().featureGroup(ms).addTo(map);
   if (points.length) map.fitBounds(g.getBounds().pad(0.1), { maxZoom: 13 }); else map.setView(LYON, 6);
   map.on("popupopen", (e) => onOpen && onOpen(e.popup.getElement(), e.popup));
-  setTimeout(() => map.invalidateSize(), 60);
+  setTimeout(() => { if (MAPS.has(map)) map.invalidateSize(); }, 60);
   return map;
 }
 

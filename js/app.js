@@ -1,14 +1,14 @@
 // Rencontre Ornitho: router, shell and the read-only screens.
-import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName, QUALITES, qualite, qTag } from "./util.js";
+import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName, QUALITES, qualite, qTag, byFr, cmp } from "./util.js";
 import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
-import { mapView, listMap } from "./map.js";
+import { mapView, listMap, dropMaps } from "./map.js";
 import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { distKm, whereIs, lieuDit, lieuOuessant, vagueName, outsideOf } from "./geo.js";
+import { whereIs, outsideOf } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -27,10 +27,19 @@ S.afterApply = (ops) => {
 };
 // where an error comes from (file:line of the first frames), to be able to fix it from a screenshot
 export const errWhere = (e) => String((e && e.stack) || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← ");
+// the model is rebuilt and the screen redrawn only when the base itself changed (a change of yours, or one read from
+// GitHub); the sending status (busy, ok, offline) only updates the status button
+let seenV = -1, saveErrShown = false;
 S.on(() => {
-  // a model that cannot be built from the base must not block sending the changes to GitHub
-  try { M = buildModel(S.db); } catch (e) { console.error(e); toast(`Erreur dans la base : ${e.message} (${errWhere(e)})`, "error"); }
+  const changed = S.version !== seenV;
+  if (changed) {
+    seenV = S.version;
+    // a model that cannot be built from the base must not block sending the changes to GitHub
+    try { M = buildModel(S.db); } catch (e) { console.error(e); toast(`Erreur dans la base : ${e.message} (${errWhere(e)})`, "error"); }
+  }
   renderStatus();
+  if (S.saveError && !saveErrShown) { saveErrShown = true; toast(S.saveError, "error"); } else if (!S.saveError) saveErrShown = false;
+  if (!changed && !/^#\/reglages/.test(location.hash)) return;
   const a = document.activeElement; // do not redraw under someone typing; a clicked button is fine
   if (!view.contains(a) || !a.matches("input:not([type=checkbox]):not([type=radio]), textarea, select")) route(true);
 });
@@ -39,8 +48,8 @@ S.on(() => {
 function renderStatus() {
   const el = $("#status"), n = S.pending.length;
   const text = { busy: "Envoi…", ok: n ? `${n} en attente` : "À jour", offline: `Hors ligne${n ? ` · ${n} en attente` : ""}`, error: "Erreur", idle: n ? `${n} en attente` : "" }[S.state] || "";
-  el.dataset.state = S.state; $(".status-text", el).textContent = text;
-  el.title = S.error || (n ? `${n} ${plural(n, "changement")} pas encore envoyé${n > 1 ? "s" : ""} sur GitHub` : "Tout est enregistré sur GitHub");
+  el.dataset.state = S.saveError ? "error" : S.state; $(".status-text", el).textContent = S.saveError ? "Mémoire pleine" : text;
+  el.title = S.saveError || S.error || (n ? `${n} ${plural(n, "changement")} pas encore envoyé${n > 1 ? "s" : ""} sur GitHub` : "Tout est enregistré sur GitHub");
 }
 $("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.errorAt ? ` (${S.errorAt})` : ""), "error"); S.sync(); });
 
@@ -73,6 +82,7 @@ let onKey = null; // a screen's keyboard shortcuts (species page: arrows)
 window.addEventListener("keydown", (e) => { if (onKey) onKey(e); });
 function draw(h) {
   onKey = null;
+  setTimeout(dropMaps, 0); // the maps of the screen being replaced
   for (const [re, fn] of ROUTES) { const m = h.match(re); if (m) { current = h; if (fn !== screenSettings && !S.hasData) { loading(); return; } try { fn(...m.slice(1)); } catch (err) { showError(err, h); } setNav(h); return; } }
   location.replace("#/");
 }
@@ -214,9 +224,9 @@ function screenList(cle) {
   const sort = UI.sort === "nom" ? "nom" : l.numerotee ? "n" : "date";
   // each sort keeps its own direction (by default: n° and name ascending, date newest first); missing values stay at the end
   const asc = sortAsc(sort), sg = asc ? 1 : -1;
-  const sorted = items.slice().sort(sort === "nom" ? (a, b) => sg * M.name(a.e).localeCompare(M.name(b.e), "fr")
+  const sorted = items.slice().sort(sort === "nom" ? (a, b) => sg * byFr(M.name(a.e), M.name(b.e))
     : sort === "n" ? (a, b) => { const x = M.rankOf(a), y = M.rankOf(b); return !x || !y ? (!x) - (!y) : sg * (x - y); }
-    : (a, b) => !a.d || !b.d ? (!a.d) - (!b.d) : sg * a.d.localeCompare(b.d));
+    : (a, b) => !a.d || !b.d ? (!a.d) - (!b.d) : sg * cmp(a.d, b.d));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
     <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
@@ -235,7 +245,7 @@ function screenList(cle) {
 // ---------- one tick ----------
 // what was seen that day in that list; the species page is one tap away, and so are the same sighting in the other lists
 function screenTick(cle, id) {
-  const t = M.ticks.find((x) => x.cle === cle && x.id === id), l = M.liste.get(cle);
+  const t = M.tickOf(cle, id), l = M.liste.get(cle);
   if (!t || !l) { view.innerHTML = '<p class="empty">Cette coche n\'existe plus.</p>'; return; }
   const e = M.esp.get(t.e) || { n: t.e }, rk = M.rankOf(t);
   // the photo of the observation, whatever the list: the same sighting shares its photo in all its lists
@@ -275,7 +285,7 @@ function screenTick(cle, id) {
   // put this sighting in place of another list's tick (its number stays; the numbers follow the dates again)
   $$("[data-repl]").forEach((b) => b.addEventListener("click", async () => {
     if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Confirmer le remplacement"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Remplacer par celle-ci"; } }, 4000); return; }
-    const [oc, oid] = b.dataset.repl.split("/"), o = M.ticks.find((x) => x.cle === oc && x.id === oid), ol = L(oc); if (!o) return;
+    const [oc, oid] = b.dataset.repl.split("/"), o = M.tickOf(oc, oid), ol = L(oc); if (!o) return;
     if (t.lat != null) { b.disabled = true; b.textContent = "Vérification du lieu…"; const out = outsideOf(ol, await whereIs(t.lat, t.lon), t, t.d); if (out) { toast(`Pas dans ${ol.nom} : ${out}.`, "error"); b.disabled = false; delete b.dataset.armed; b.textContent = "Remplacer par celle-ci"; return; } }
     const patch = {}; ["d", "h", "sh", "sd", "l", "lat", "lon", "sl", "p", "ph", "q", "t"].forEach((k) => { patch[k] = t[k] ?? null; }); patch.nph = null; patch.vf = null;
     S.apply({ kind: "set-tick", cle: oc, id: oid, patch }, `${ol.nom} : ${e.n} remplacée par l'observation du ${fmtShort(t.d)}${t.l ? " (" + t.l + ")" : ""} (avant : ${o.d ? fmtShort(o.d) : "sans date"})`);
@@ -323,7 +333,7 @@ function screenTick(cle, id) {
   const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
   if (at < 0) return;
   const prev = at > 0 ? nav.refs[at - 1] : null, next = at < nav.refs.length - 1 ? nav.refs[at + 1] : null;
-  const nm = (ref) => { const [c, i] = ref.split("/"); const x = M.ticks.find((y) => y.cle === c && y.id === i); return x ? M.name(x.e) : ""; };
+  const nm = (ref) => { const [c, i] = ref.split("/"); const x = M.tickOf(c, i); return x ? M.name(x.e) : ""; };
   view.firstElementChild.insertAdjacentHTML("afterbegin", `<nav class="spnav" aria-label="Coches de la liste">${prev ? `<a class="spnav-a" href="#/coche/${prev}" data-nav="prev">‹<span>${esc(nm(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.refs.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="#/coche/${next}" data-nav="next"><span>${esc(nm(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>`);
   const move = (ref) => { if (ref) { location.replace("#/coche/" + ref); scrollTo(0, 0); } };
   $$("[data-nav]", view).forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); move(a.dataset.nav === "prev" ? prev : next); }));
@@ -348,7 +358,7 @@ function screenListMap(cle) {
   placed.forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   const card = (t) => { const rk = M.rankOf(t); return `<b class="pop-n">${rk ? "n°" + rk + " · " : ""}${esc(M.name(t.e))}</b><small>${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? " · " + esc(t.l) : ""}${t.t ? " · " + esc(t.t) : ""}</small>${phSlider(photosOf(t), M.name(t.e)) || (ph ? '<p class="cap">Pas de photo de ce jour-là dans l\'appli.</p>' : "")}<span class="pop-links"><a class="linkish" href="#/coche/${esc(cle)}/${esc(t.id)}">La coche</a> · <a class="linkish" href="#/espece/${esc(t.e)}?l=${esc(cle)}">L'espèce</a></span>`; };
   const pts = [...groups.values()].map((ts) => {
-    ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || (a.d || "").localeCompare(b.d || ""));
+    ts.sort((a, b) => (M.rankOf(a) || 1e9) - (M.rankOf(b) || 1e9) || cmp(a.d || "", b.d || ""));
     return { lat: ts[0].lat, lon: ts[0].lon, count: ts.length, color: !ph || ts.some((t) => photosOf(t).length) ? color : "#9AA5A0", html: () => ts.length === 1 ? `<div class="pop">${card(ts[0])}</div>`
       : `<div class="pop pop-g" data-i="0"><div class="pop-head"><button type="button" class="pop-b" data-d="-1" aria-label="Espèce précédente">‹</button><span class="pop-c">1 / ${ts.length} ${plural(ts.length, "espèce")} à ce point</span><button type="button" class="pop-b" data-d="1" aria-label="Espèce suivante">›</button></div>
         <ul class="pop-list">${ts.map((t, i) => `<li><button type="button" data-k="${i}" class="${i ? "" : "on"}">${M.rankOf(t) ? M.rankOf(t) + " · " : ""}${esc(M.name(t.e))}</button></li>`).join("")}</ul>
@@ -399,7 +409,7 @@ function screenYear(y) {
   // the comparison date: today's day and month (31 December once a year is over and we look at this year)
   const md = todayIso().slice(5), dateLbl = fmtDay(`2000-${md}`, false);
   const series = years.map((yy) => {
-    const l = M.yearList(yy, scope), dated = l.filter((t) => t.d).sort((a, b) => a.d.localeCompare(b.d));
+    const l = M.yearList(yy, scope), dated = l.filter((t) => t.d).sort((a, b) => cmp(a.d, b.d));
     const pts = []; dated.forEach((t, i) => { const dx = doy(t.d); if (pts.length && pts[pts.length - 1].x === dx) pts[pts.length - 1].v = i + 1; else pts.push({ x: dx, v: i + 1 }); });
     return { year: yy, pts, at: dated.filter((t) => t.d.slice(5) <= md).length, full: yy < thisYear ? l.length : null, total: l.length };
   });
@@ -421,9 +431,9 @@ function screenYear(y) {
   const maxAt = Math.max(1, ...rows.map((r) => r.at));
   // stats
   const dated = list.filter((t) => t.d), byDay = new Map(); dated.forEach((t) => byDay.set(t.d, (byDay.get(t.d) || 0) + 1));
-  const bestDay = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const bestDay = [...byDay].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))[0];
   const elapsed = past ? daysIn(year) : doy(todayIso()) + 1;
-  const last = dated.slice().sort((a, b) => b.d.localeCompare(a.d) || (b.rank - a.rank))[0];
+  const last = dated.slice().sort((a, b) => cmp(b.d, a.d) || (b.rank - a.rank))[0];
   const groups = new Map(); [...list.filter((t) => t.d).reverse(), ...list.filter((t) => !t.d)].forEach((t) => { const k = t.d || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   view.innerHTML = `<div class="screen keep-scroll">
     <div class="tools"><select class="field" id="yl-year" aria-label="Année" style="max-width:120px">${years.slice().reverse().map((x) => `<option ${x === year ? "selected" : ""}>${x}</option>`).join("")}</select>
@@ -444,23 +454,6 @@ function screenYear(y) {
   $("#yl-year").addEventListener("change", (e) => go(`#/annee/${e.target.value}`));
 }
 
-// a name for a place known only by its coordinates: the same observation in another list,
-// a named tick within 300 m, else the commune (geo.api.gouv.fr, Nominatim abroad)
-async function nameFor(t) {
-  const named = M.ticks.filter((x) => x.l && x.lat != null && !vagueName(x.l));
-  const same = named.find((x) => x.e === t.e && t.d && x.d === t.d && distKm(x, t) < 2);
-  if (same) return { l: same.l, sl: same.sl || null };
-  const obn = await lieuOuessant(t.lat, t.lon); if (obn) return { l: obn, sl: "obn" };
-  let best = null, bd = 0.3; for (const x of named) { const d = distKm(x, t); if (d < bd) { bd = d; best = x; } }
-  if (best) return { l: best.l, sl: best.sl || null };
-  for (const x of M.db.lieux || []) if (x.lat != null && distKm(x, t) < 0.3) return { l: x.nom, sl: "appli" };
-  const w = await whereIs(t.lat, t.lon);
-  const ld = !w || w.fr || w.mer ? await lieuDit(t.lat, t.lon, w && w.commune) : null;
-  if (ld) return { l: w && w.commune ? `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})` : ld.name, sl: "ign" };
-  if (w && w.commune) return { l: w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune, sl: "geo" };
-  if (w && w.pays && !w.mer) return { l: w.pays, sl: "geo" };
-  return null;
-}
 // ---------- journal ----------
 function screenJournal() {
   const F = Object.assign({ q: "", cle: "", year: "", miss: "" }, UI.jf || {});
@@ -472,30 +465,17 @@ function screenJournal() {
       <select class="field" id="jl"><option value="">Toutes les listes</option>${lists.map((l) => `<option value="${l.cle}" ${F.cle === l.cle ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select>
       <select class="field" id="jy"><option value="">Toutes les années</option>${years.map((y) => `<option ${+F.year === y ? "selected" : ""}>${y}</option>`).join("")}<option value="none" ${F.year === "none" ? "selected" : ""}>Sans date</option></select>
       <select class="field" id="jm"><option value="">Tout</option><option value="coords" ${F.miss === "coords" ? "selected" : ""}>Sans coordonnées</option><option value="lieu" ${F.miss === "lieu" ? "selected" : ""}>Sans lieu</option><option value="date" ${F.miss === "date" ? "selected" : ""}>Sans date</option></select></div>
-    <p class="cap" id="jc"></p><div class="row" id="jname" hidden><button class="btn" id="jname-go" type="button"></button><span class="cap">D'abord une coche de la même observation ou une coche déjà nommée à moins de 300 m, sinon le lieu-dit de l'IGN le plus proche (à 1,5 km au plus, ou l'étang si le point est dedans), sinon la commune.</span></div><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
+    <p class="cap" id="jc"></p><ul class="ticks" id="jr"></ul><button class="btn" id="more" hidden>Afficher plus</button></div>`;
   let shown = 200;
   const draw = () => {
     const k = norm(F.q);
     const res = M.ticks.filter((t) => (!F.cle || t.cle === F.cle) && (!F.year || (F.year === "none" ? !t.d : yearOf(t.d) === +F.year)) && (!F.miss || (F.miss === "coords" ? t.lat == null : F.miss === "date" ? !t.d : !t.l))
       && (!k || norm(`${t.l || ""} ${t.p || ""} ${t.t || ""}`).includes(k) || M.matchesSp(k, t.e)))
-      .sort((a, b) => (b.d || "").localeCompare(a.d || "") || (b.n || 0) - (a.n || 0));
+      .sort((a, b) => cmp(b.d || "", a.d || "") || (b.n || 0) - (a.n || 0));
     $("#jc").textContent = `${res.length} ${plural(res.length, "coche")}`;
     $("#jr").innerHTML = res.slice(0, shown).map((t) => `<li class="tick link" data-edit="${t.cle}/${t.id}"><span class="n" ${cstyle(t.cle)}>${M.rankOf(t)}</span><span class="what"><b>${esc(M.name(t.e))}</b>${qTag((M.esp.get(t.e) || {}).q)} ${chip(t.cle)}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(t.l || "")}${t.lat == null ? ' <span class="miss">sans coordonnées</span>' : ""}${t.t ? " · " + esc(t.t) : ""}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`).join("");
     $("#more").hidden = res.length <= shown;
-    unnamed = F.miss === "lieu" ? res.filter((t) => t.lat != null) : [];
-    $("#jname").hidden = !unnamed.length; $("#jname-go").textContent = `Nommer ${unnamed.length} ${plural(unnamed.length, "lieu", "lieux")} d'après les coordonnées`;
   };
-  let unnamed = [];
-  $("#jname-go").addEventListener("click", async () => {
-    const b = $("#jname-go"); b.disabled = true; const ops = []; let i = 0;
-    for (const t of unnamed) {
-      b.textContent = `Recherche… ${++i}/${unnamed.length}`;
-      const n = await nameFor(t); if (n) ops.push({ kind: "set-tick", cle: t.cle, id: t.id, patch: { l: n.l, sl: n.sl } });
-    }
-    b.disabled = false;
-    if (!ops.length) { toast("Aucun lieu trouvé (pas de réseau ?)."); draw(); return; }
-    S.apply(ops, `Lieux nommés d'après les coordonnées : ${ops.length} ${plural(ops.length, "coche")}`); toast(`${ops.length} ${plural(ops.length, "lieu", "lieux")} ${ops.length > 1 ? "nommés" : "nommé"}.`);
-  });
   const set = (p) => { Object.assign(F, p); saveUI({ jf: F }); shown = 200; draw(); };
   $("#jq").addEventListener("input", (e) => set({ q: e.target.value }));
   $("#jl").addEventListener("change", (e) => set({ cle: e.target.value }));
@@ -600,13 +580,13 @@ function screenCalendar() {
     }
   }
   grid += "</div>";
-  const ts = (days.get(sel) || []).slice().sort((a, b) => a.d.localeCompare(b.d));
+  const ts = (days.get(sel) || []).slice().sort((a, b) => cmp(a.d, b.d));
   const [sm, sd] = sel.split("-").map(Number);
   const total = [...days.values()].reduce((s, a) => s + a.length, 0);
   // records: best single day, best year, best month (all years together)
   const pf = (M.db.coches[PHOTO_FR] || []).filter((t) => t.d), byDate = new Map(), byYear = new Map(), byMonth = new Array(12).fill(0);
   pf.forEach((t) => { byDate.set(t.d, (byDate.get(t.d) || 0) + 1); const yy = t.d.slice(0, 4); byYear.set(yy, (byYear.get(yy) || 0) + 1); byMonth[+t.d.slice(5, 7) - 1]++; });
-  const bestD = [...byDate].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0], bestY = [...byYear].sort((a, b) => b[1] - a[1])[0], bm = byMonth.indexOf(Math.max(...byMonth));
+  const bestD = [...byDate].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))[0], bestY = [...byYear].sort((a, b) => b[1] - a[1])[0], bm = byMonth.indexOf(Math.max(...byMonth));
   const stats = pf.length ? `<div class="stats"><div class="stat"><span class="k">Meilleure journée</span><span class="v">${bestD[1]}<small> coches</small></span><span class="s">${esc(fmtDay(bestD[0]))}</span></div>
     <div class="stat"><span class="k">Meilleure année</span><span class="v">${bestY[0]}</span><span class="s">${bestY[1]} nouvelles espèces</span></div>
     <div class="stat"><span class="k">Meilleur mois</span><span class="v">${MOIS[bm]}</span><span class="s">${byMonth[bm]} coches, toutes années</span></div></div>` : "";
@@ -687,7 +667,7 @@ function screenTodo() {
     const k = t.d ? t.e + "|" + t.d : t.cle + "|" + t.id; if (!ng.has(k)) ng.set(k, []); ng.get(k).push(t);
   }
   c.noPlace = [...ng.values()].filter(anyOn).map((ts) => ({ ts, e: ts[0].e, d: ts[0].d, gps: ts.some((t) => t.lat == null), name: ts.some((t) => !t.l), main: (sel && ts.find((t) => t.cle === sel)) || ts[0] }))
-    .sort((a, b) => (b.d || "").localeCompare(a.d || "") || M.name(a.e).localeCompare(M.name(b.e), "fr"));
+    .sort((a, b) => cmp(b.d || "", a.d || "") || byFr(M.name(a.e), M.name(b.e)));
   // photo ticks with no photo in the app, one row per observation (the photo is shared by its lists)
   const nphG = new Map();
   for (const t of M.ticks) {
@@ -703,21 +683,21 @@ function screenTodo() {
   c.noPhoto = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.ph || t.nph) && !M.firstPhotos(ts[0].e).some((p) => p.d === ts[0].d)).filter(anyOn)
     .filter((ts) => withYL || ts.some((t) => needsPh(t.cle)))
     .map((ts) => ({ ts, main: (sel && ts.find((t) => t.cle === sel)) || ts.find((t) => t.cle === LIFERS) || ts[0], folder: M.photoOn(ts[0].e, ts[0].d) }))
-    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
+    .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
   // photos without a label (étiquette): the photo of an observation (its own, or the Liste folder's of that day),
   // one row per observation; and best-of photos
   const samePic = (a, b) => !!(a && b && ((a.img || a.url) === (b.img || b.url) || (M.picKey(a) && M.picKey(a) === M.picKey(b))));
   const isBest = (sid, ph) => samePic(M.bestPhoto(sid), ph) && !!(M.esp.get(sid) || {}).q;
   c.noTag = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.q)).map((ts) => ({ ts, ph: M.photosFor(ts[0])[0] })).filter((x) => x.ph && anyOn(x.ts) && !isBest(x.ts[0].e, x.ph))
     .map((x) => ({ ...x, shown: withYL ? x.ts : x.ts.filter((t) => !isYL(t.cle)) })).filter((x) => x.shown.length)
-    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
+    .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
   // the photo of an observation that is also the best of: one row, its label goes to both
   c.noTag.forEach((x) => { if (samePic(M.esp.get(x.ts[0].e).best, x.ph)) x.alsoBest = x.ts[0].e; });
   if (!sel) [...M.esp.values()].filter((e) => e.best && !e.q && !c.noTag.some((x) => x.alsoBest === e.id)).forEach((e) => c.noTag.unshift({ best: e.id, ph: e.best }));
   // a series of photos that day and no photo chosen yet: one row per observation
   c.toChoose = [...nphG.values()].flat().filter(anyOn).map((ts) => ({ ts, serie: M.series(ts[0].e, ts[0].d) })).filter((x) => x.serie.length > 1 && !x.ts.some((t) => t.phc))
     .map((x) => ({ ...x, main: (sel && x.ts.find((t) => t.cle === sel)) || x.ts.find((t) => t.cle === LIFERS) || x.ts[0], ph: M.photosFor(x.ts[0])[0] }))
-    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
+    .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
@@ -886,5 +866,6 @@ paintTheme();
 
 // ---------- start ----------
 renderStatus(); route();
-if (S.ready) S.sync();
+// the copy of the base kept on this device is read (IndexedDB), then GitHub is asked what changed
+S.boot.then(() => { seenV = S.version; try { M = buildModel(S.db); } catch (e) { console.error(e); } renderStatus(); route(); if (S.ready) S.sync(); });
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
