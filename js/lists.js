@@ -36,6 +36,7 @@ function editForm(el, l) {
     <label>Comprise dans<select class="field" id="l-dans">${parentOptions(st.dans, l)}</select></label>
     <div class="row2"><label>Couleur<input class="field" type="color" id="l-col" value="${esc(l ? M.color(l.cle) : "#3B7A57")}"></label>
       <label class="chk" style="align-self:end"><input type="checkbox" id="l-num" ${st.numerotee ? "checked" : ""}> Numéroter les coches</label></div>
+      <label class="chk"><input type="checkbox" id="l-att" ${st.photosAttente ? "checked" : ""}> Photos en attente <small class="cap">(À faire ne demande pas encore les photos ni les étiquettes de cette liste)</small></label>
     <div id="l-fixed-w"><span class="lab">Lieu <small>(repris tout seul à chaque coche ; ajoute un lieu à chaque déménagement)</small></span>
       <label>Rayon autour du lieu, en mètres <small>(une coche plus loin est signalée ; un import date les coches dans ce rayon)</small><input class="field" type="number" min="50" step="50" id="l-rayon" value="${esc(st.rayon || 300)}" style="max-width:140px"></label>
       <ul class="plain" id="l-fixed"></ul>
@@ -116,7 +117,7 @@ function editForm(el, l) {
   $("#lf").addEventListener("submit", (e) => {
     e.preventDefault();
     const nom = nomIn.value.trim(); if (!nom) return;
-    const base = { nom, dans: dansSel.value || null, couleur: $("#l-col").value, numerotee: $("#l-num").checked || null };
+    const base = { nom, dans: dansSel.value || null, couleur: $("#l-col").value, numerotee: $("#l-num").checked || null, photosAttente: $("#l-att").checked || null };
     if (!isNew) {
       if (base.dans && M.chain(base.dans).includes(l.cle)) { toast("Une liste ne peut pas être dans une de ses sous-listes."); return; }
       const ops = [{ kind: "set-liste", cle: l.cle, patch: { ...base, lieux: st.lieux.length ? st.lieux : null, rayon: fixedOk() && +$("#l-rayon").value && +$("#l-rayon").value !== 300 ? +$("#l-rayon").value : null, ...(st.kind === "dep" ? { deps: [depSel.value] } : st.kind === "reg" ? { deps: deptsOfRegion(regSel.value), region: regSel.value } : {}) } }];

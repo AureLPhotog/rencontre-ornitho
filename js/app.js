@@ -229,7 +229,7 @@ function screenList(cle) {
     : (a, b) => !a.d || !b.d ? (!a.d) - (!b.d) : sg * cmp(a.d, b.d));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
-    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}</header>
+    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}${l.photosAttente ? '<p class="cap">📷 Photos en attente : À faire ne les demande pas encore (Plus › Mes listes pour changer).</p>' : ""}</header>
     <div class="tools lt"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${opts.map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc, true)}</div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
@@ -680,7 +680,9 @@ function screenTodo() {
   // observation shows only if one of its lists needs the photo; « toutes les listes » shows the others too
   const isYL = (cle) => (L(cle).type === "annee") || /^yl\d{4}$/.test(cle), needsPh = (cle) => ["photo", "pays"].includes(L(cle).type);
   const withYL = UI.nphYL === true || (sel && !needsPh(sel));
-  c.noPhoto = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.ph || t.nph) && !M.firstPhotos(ts[0].e).some((p) => p.d === ts[0].d)).filter(anyOn)
+  // a list whose photos are still being processed (Guyane): its observations are not asked for a photo yet
+  const waiting = (ts) => ts.some((t) => L(t.cle).photosAttente);
+  c.noPhoto = [...nphG.values()].flat().filter((ts) => !waiting(ts) && !ts.some((t) => t.ph || t.nph) && !M.firstPhotos(ts[0].e).some((p) => p.d === ts[0].d)).filter(anyOn)
     .filter((ts) => withYL || ts.some((t) => needsPh(t.cle)))
     .map((ts) => ({ ts, main: (sel && ts.find((t) => t.cle === sel)) || ts.find((t) => t.cle === LIFERS) || ts[0], folder: M.photoOn(ts[0].e, ts[0].d) }))
     .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
@@ -688,14 +690,14 @@ function screenTodo() {
   // one row per observation; and best-of photos
   const samePic = (a, b) => !!(a && b && ((a.img || a.url) === (b.img || b.url) || (M.picKey(a) && M.picKey(a) === M.picKey(b))));
   const isBest = (sid, ph) => samePic(M.bestPhoto(sid), ph) && !!(M.esp.get(sid) || {}).q;
-  c.noTag = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.q)).map((ts) => ({ ts, ph: M.photosFor(ts[0])[0] })).filter((x) => x.ph && anyOn(x.ts) && !isBest(x.ts[0].e, x.ph))
+  c.noTag = [...nphG.values()].flat().filter((ts) => !waiting(ts) && !ts.some((t) => t.q)).map((ts) => ({ ts, ph: M.photosFor(ts[0])[0] })).filter((x) => x.ph && anyOn(x.ts) && !isBest(x.ts[0].e, x.ph))
     .map((x) => ({ ...x, shown: withYL ? x.ts : x.ts.filter((t) => !isYL(t.cle)) })).filter((x) => x.shown.length)
     .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
   // the photo of an observation that is also the best of: one row, its label goes to both
   c.noTag.forEach((x) => { if (samePic(M.esp.get(x.ts[0].e).best, x.ph)) x.alsoBest = x.ts[0].e; });
   if (!sel) [...M.esp.values()].filter((e) => e.best && !e.q && !c.noTag.some((x) => x.alsoBest === e.id)).forEach((e) => c.noTag.unshift({ best: e.id, ph: e.best }));
   // a series of photos that day and no photo chosen yet: one row per observation
-  c.toChoose = [...nphG.values()].flat().filter(anyOn).map((ts) => ({ ts, serie: M.series(ts[0].e, ts[0].d) })).filter((x) => x.serie.length > 1 && !x.ts.some((t) => t.phc))
+  c.toChoose = [...nphG.values()].flat().filter((ts) => !waiting(ts)).filter(anyOn).map((ts) => ({ ts, serie: M.series(ts[0].e, ts[0].d) })).filter((x) => x.serie.length > 1 && !x.ts.some((t) => t.phc))
     .map((x) => ({ ...x, main: (sel && x.ts.find((t) => t.cle === sel)) || x.ts.find((t) => t.cle === LIFERS) || x.ts[0], ph: M.photosFor(x.ts[0])[0] }))
     .sort((a, b) => cmp(b.ts[0].d || "", a.ts[0].d || "") || byFr(M.name(a.ts[0].e), M.name(b.ts[0].e)));
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
