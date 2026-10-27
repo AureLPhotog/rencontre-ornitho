@@ -17,6 +17,14 @@ export const saveUI = (patch) => { Object.assign(UI, patch); store("ro.ui", UI);
 export { UI };
 
 const view = $("#view"); window.__roBooted = true;
+// a date that changes (or a tick added) in a numbered list: its numbers follow the dates again, at once
+S.afterApply = (ops) => {
+  const cles = [...new Set(ops.filter((o) => (o.kind === "set-tick" && o.patch && "d" in o.patch) || o.kind === "add-tick" || o.kind === "del-tick").map((o) => o.cle))]
+    .filter((cle) => (S.db.listes.find((l) => l.cle === cle) || {}).numerotee);
+  if (!cles.length) return [];
+  const m = buildModel(S.db);
+  return cles.flatMap((cle) => m.renumber(cle).map((x) => ({ kind: "set-tick", cle, id: x.t.id, patch: { n: x.to } })));
+};
 // where an error comes from (file:line of the first frames), to be able to fix it from a screenshot
 export const errWhere = (e) => String((e && e.stack) || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← ");
 S.on(() => {

@@ -189,6 +189,13 @@ export class Store {
     ops = (Array.isArray(ops) ? ops : [ops]).map((op) => stampSource({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
     const back = [];
     ops.forEach((op) => { const inv = inverseOp(this.db, op); if (inv) back.unshift(inv); applyOp(this.db, op); });
+    // what follows from these changes (numbers back in date order…), part of the same change and of its « Annuler »
+    if (!undo && this.afterApply) {
+      let more = []; try { more = this.afterApply(ops) || []; } catch (e) { console.error(e); }
+      more = more.map((op) => stampSource({ ...op, opid: uid(), at: Date.now(), label: op.label || label || "" }));
+      more.forEach((op) => { const inv = inverseOp(this.db, op); if (inv) back.unshift(inv); applyOp(this.db, op); });
+      ops = ops.concat(more);
+    }
     this.pending.push(...ops);
     if (!undo && back.length) { this.undos = [...this.undos, { label: label || ops[0].label, at: Date.now(), ops: back }].slice(-30); store(UNDO_KEY, this.undos); }
     this._save(); this._emit(); this.sync();
