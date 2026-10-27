@@ -154,7 +154,7 @@ document.addEventListener("click", (ev) => {
 // in a list, a row opens that tick (toTick); elsewhere it opens the species page
 function row(t, { rank, showList = false, from, toTick = false } = {}) {
   const place = t.l && t.l !== t.p ? t.l : "";
-  const name = toTick ? `<a href="#/coche/${esc(t.cle)}/${esc(t.id)}">${esc(M.name(t.e))}</a>${qTag(t.q)}${qTag(M.bestQ(t.e), "best")}${t.ph ? ' <span class="cap" title="Photo de la coche">📷</span>' : ""}` : nameLink(t.e, from);
+  const name = toTick ? `<a href="#/coche/${esc(t.cle)}/${esc(t.id)}">${esc(M.name(t.e))}</a>${qTag(t.q)}${qTag(M.bestQ(t.e), "best")}${M.photosFor(t).length ? ' <span class="cap" title="Photo de la coche">📷</span>' : ""}` : nameLink(t.e, from);
   return `<li class="tick"><span class="n" ${cstyle(t.cle)}>${rank != null ? rank : M.rankOf(t)}</span><span class="what">${name}${showList ? " " + chip(t.cle) : ""}${!isFrance(t.p) ? ` <span class="abroad">${esc(t.p)}</span>` : ""}<small>${esc(place)}</small></span><span class="when">${t.d ? esc(fmtShort(t.d)) : "<em>sans date</em>"}</span></li>`;
 }
 
@@ -496,7 +496,7 @@ function screenSpecies(sid, q) {
   const navBar = at >= 0 ? `<nav class="spnav" aria-label="Espèces de la liste">${prev ? `<a class="spnav-a" href="${to(prev)}" data-nav="prev" aria-label="Espèce précédente : ${esc(M.name(prev))}">‹<span>${esc(M.name(prev))}</span></a>` : `<span class="spnav-a off">‹</span>`}<span class="spnav-pos">${at + 1} / ${nav.ids.length}<small>${esc(nav.nom)}</small></span>${next ? `<a class="spnav-a nx" href="${to(next)}" data-nav="next" aria-label="Espèce suivante : ${esc(M.name(next))}"><span>${esc(M.name(next))}</span>›</a>` : `<span class="spnav-a nx off">›</span>`}</nav>` : "";
   const m = M.bySp.get(sid) || new Map();
   const st = (e.st || []).map((v, i) => v ? `${["Nicheur", "Hivernant", "De passage", "Occasionnel"][i]} ${esc(v)}` : "").filter(Boolean).join(" · ");
-  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""}${t.ph ? ' · <span title="Photo de la coche">📷</span>' : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">voir la coche</a></span>`).join("")}</li>`).join("");
+  const blocks = M.listes.filter((l) => m.has(l.cle)).map((l) => `<li><b>${esc(l.nom)}</b> ${m.get(l.cle).map((t) => `<span class="tk">${t.n ? `n°${t.n} · ` : ""}${t.d ? esc(fmtDay(t.d)) : "sans date"}${t.l ? ` · ${t.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${esc(t.l)}</a>` : esc(t.l)}` : ""}${!isFrance(t.p) ? ` · ${esc(t.p)}` : ""}${t.t ? ` · ${esc(t.t)}` : ""}${M.photosFor(t).length ? ' · <span title="Photo de la coche">📷</span>' : ""} <a class="linkish" href="#/coche/${l.cle}/${t.id}">voir la coche</a></span>`).join("")}</li>`).join("");
   // one point per place: Photo France in green, the lifer in red, everything else in blue
   const byPlace = new Map();
   [...m.values()].flat().filter((t) => t.lat != null).forEach((t) => { const k = t.lat.toFixed(5) + "," + t.lon.toFixed(5); if (!byPlace.has(k)) byPlace.set(k, []); byPlace.get(k).push(t); });
