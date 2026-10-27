@@ -134,7 +134,7 @@ export function buildModel(db) {
     const best = M.bestPhoto(sid);
     if (best) add(best, "Meilleure photo", M.bestQ(sid));
     if (lifPhoto) add(lifPhoto, "Photo lifer", lif.q);
-    firsts.forEach((p) => add(p, firsts.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo"));
+    firsts.forEach((p) => add(p, lif && lif.d && p.d < lif.d ? "Photo d'avant la coche (ne compte pas)" : firsts.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo"));
     ticks.filter((t) => t.ph).forEach((t) => add(t.ph, `Photo de la coche · ${(M.liste.get(t.cle) || { nom: t.cle }).nom}`, t.q));
     return out;
   };
@@ -226,6 +226,9 @@ export function buildModel(db) {
     for (const t of M.ticks) {
       if (!t.d || t.vf === t.d || /^(vu|entendu)/i.test(t.t || "")) continue;
       const l = M.liste.get(t.cle); if (!l || !(t.cle === PHOTO_FR || (l.type === "annee" && isFrance(t.p)))) continue;
+      // a species that counts only in some places (Gypaète: wild only in the Pyrenees and Corsica): its photos taken
+      // elsewhere can be older than the tick, they say nothing about its date
+      if ((M.esp.get(t.e) || {}).compte) continue;
       const days = M.photoDays(t.e); if (!days.length) continue;
       const first = t.cle === PHOTO_FR ? days[0] : days.find((x) => x[0].slice(0, 4) === t.d.slice(0, 4));
       if (!first || first[0] >= t.d) continue;

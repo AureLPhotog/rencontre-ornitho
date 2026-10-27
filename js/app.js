@@ -466,7 +466,7 @@ function screenSpecies(sid, q) {
     return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: `<div class="pop">${phSlider(photos, e.n)}<div class="pop-ticks">${ts.map((t) => `<a class="chip-s" ${cstyle(t.cle)} href="#/coche/${t.cle}/${t.id}">${esc(L(t.cle).nom)}${M.rankOf(t) ? " n°" + M.rankOf(t) : ""}</a>`).join(" ")}</div><small>${[...new Set(ts.map((t) => t.d ? fmtShort(t.d) : ""))].filter(Boolean).join(", ")}${ts[0].l ? " · " + esc(ts[0].l) : ""}</small></div>` };
   });
   view.innerHTML = `<div class="screen">
-    ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}<div class="qrow"><span class="cap">Étiquette de la photo best of</span><div class="qpick" role="group" aria-label="Étiquette de la photo best of">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}${!e.q && M.liferQ(sid) ? `<span class="cap">Pas d'étiquette best of : l'espèce prend celle de la photo lifer ${qTag(M.liferQ(sid))}</span>` : ""}</div></header>
+    ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}${e.compte ? `<p class="tkwarn">⚠ ${esc(e.compte)}</p>` : ""}<div class="qrow"><span class="cap">Étiquette de la photo best of</span><div class="qpick" role="group" aria-label="Étiquette de la photo best of">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}${!e.q && M.liferQ(sid) ? `<span class="cap">Pas d'étiquette best of : l'espèce prend celle de la photo lifer ${qTag(M.liferQ(sid))}</span>` : ""}</div></header>
     ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n, { del: sid })}</section>` : ""; })()}
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
@@ -477,6 +477,7 @@ function screenSpecies(sid, q) {
         <label>Nom latin <small>(la référence pour les imports)</small><input class="field" id="n-sc" value="${esc(e.sc || "")}"></label>
         <label>Autres noms <small>(séparés par des virgules : Petit Chevalier, Lesser Yellowlegs…)</small><input class="field" id="n-al" value="${esc((e.al || []).join(", "))}"></label>
         <label>Autres noms latins <small>(anciens ou d'autres nomenclatures)</small><input class="field" id="n-scs" value="${esc((e.scs || []).join(", "))}"></label>
+        <label>Règle de coche <small>(ex. : sauvage seulement dans les Pyrénées et en Corse ; les photos ailleurs ne comptent pas)</small><input class="field" id="n-cp" value="${esc(e.compte || "")}"></label>
         <div class="row"><button class="btn btn-primary" type="submit">Enregistrer les noms</button></div></form></details>
   </div>`;
   if (pts.length) { const mm = mapView($("#mm"), pts); if (mm) mm.on("popupopen", (ev) => { const el = ev.popup.getElement(); wirePhotos(el); $$("img[data-ph]", el).forEach((im) => im.addEventListener("load", () => ev.popup.update(), { once: true })); }); }
@@ -496,7 +497,7 @@ function screenSpecies(sid, q) {
   $("#names").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const list = (v) => v.split(/\s*[,;]\s*/).map((x) => x.trim()).filter(Boolean);
-    const patch = { n: $("#n-n").value.trim() || e.n, sc: $("#n-sc").value.trim() || null, al: list($("#n-al").value), scs: list($("#n-scs").value) };
+    const patch = { n: $("#n-n").value.trim() || e.n, sc: $("#n-sc").value.trim() || null, al: list($("#n-al").value), scs: list($("#n-scs").value), compte: $("#n-cp").value.trim() || null };
     if (!patch.al.length) patch.al = null; if (!patch.scs.length) patch.scs = null;
     S.apply({ kind: "set-espece", id: sid, patch }, `Noms : ${patch.n}`); toast("Noms enregistrés.");
   });

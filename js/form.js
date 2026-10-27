@@ -204,8 +204,9 @@ export function renderAdd(view, q) {
     $$("[data-zone]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.zone === st.zone)));
     const sid = st.e; prefillFromSameDay();
     // what we already know about the species
-    const m = sid && M.bySp.get(sid);
+    const m = sid && M.bySp.get(sid), rule = sid && (M.esp.get(sid) || {}).compte;
     $("#f-known").innerHTML = sid ? (m ? "Déjà : " + M.listes.filter((l) => m.has(l.cle)).map((l) => { const t = m.get(l.cle)[0]; return `${esc(l.nom)}${t.n ? " n°" + t.n : ""}${t.d ? " (" + fmtShort(t.d) + ")" : ""}`; }).join(" · ") : "Jamais cochée : ce sera une première.") : st.newName ? `Nouvelle espèce « ${esc(st.newName)} » : elle sera ajoutée au référentiel.` : "";
+    if (rule) $("#f-known").insertAdjacentHTML("beforeend", `<br><span class="miss">⚠ ${esc(rule)}</span>`);
     if (!sid && !st.newName) { $("#f-targets").innerHTML = '<p class="cap">Choisis d\'abord l\'espèce.</p>'; return; }
     const { list } = suggest(M, sid, { photo: st.photo, zone: fr ? st.zone : null, country: st.p, date: st.d });
     list.forEach((x) => { if (st.picks[x.cle] && st.picks[x.cle].touched) { x.checked = st.picks[x.cle].checked; if (st.picks[x.cle].num) x.num = st.picks[x.cle].num; } });
