@@ -163,7 +163,7 @@ export function photoBox(el, where, phSlider) {
   const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. ${where.tick.d ? `Elle doit avoir été prise le jour de la coche (${fmtShort(where.tick.d)}) : sa date de prise de vue est vérifiée.` : `La coche n'a pas de date : elle prendra celle de la photo${M.liste.get(where.cle) && M.liste.get(where.cle).type === "annee" ? " (une photo de l'année de la year list)" : ""}, et son GPS si elle en a un.`}` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
   el.innerHTML = `<section class="panel phbox"><h3 class="minor">${title}</h3><p class="cap">${help}</p>
     <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? "Photo de la coche" : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
-    <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}</div>
+    <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}${where.kind === "tick" && !cur && !where.tick.nph && !M.photosFor(where.tick).length ? '<button type="button" class="btn ph-nope">Pas de photo</button>' : ""}</div>
     <div class="row ph-fl"><input class="field" type="url" placeholder="ou lien Flickr (page de la photo, ou lien direct de l’image)"><button type="button" class="btn">Vérifier</button></div>
     ${where.kind === "best" ? (() => { const mine = M.allPhotos(sid).filter((p) => !cur || (p.img || p.url) !== (cur.img || cur.url)); return mine.length ? `<p class="cap">Parmi tes photos de l'espèce :</p><div class="ph-pick">${mine.map((p, i) => `<button type="button" class="ph-pk" data-i="${i}" title="${esc(p.label)}"><img class="ph" data-ph="${esc(p.img || p.url)}" data-alt="" alt=""><small>${esc(p.label)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}</small></button>`).join("")}</div>` : ""; })() : ""}
     <div class="ph-new"></div><p class="msg"></p></section>`;
@@ -285,6 +285,12 @@ export function photoBox(el, where, phSlider) {
       store_(ph, q);
     }));
   }
+  // « Pas de photo »: no photo of this sighting (in all its lists); it leaves « Coches sans photo »
+  const none = $(".ph-nope", el);
+  if (none) none.addEventListener("click", () => {
+    S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: { nph: true } })), `Pas de photo : ${M.name(sid)}${where.tick.d ? " (" + fmtShort(where.tick.d) + ")" : ""}`);
+    toast("Noté : pas de photo pour cette coche."); again();
+  });
   const del = $(".ph-del", el);
   if (del) del.addEventListener("click", () => {
     if (!del.dataset.armed) { del.dataset.armed = "1"; del.textContent = "Confirmer : retirer"; return; }
