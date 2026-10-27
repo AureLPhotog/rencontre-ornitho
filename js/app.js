@@ -17,8 +17,11 @@ export const saveUI = (patch) => { Object.assign(UI, patch); store("ro.ui", UI);
 export { UI };
 
 const view = $("#view"); window.__roBooted = true;
+// where an error comes from (file:line of the first frames), to be able to fix it from a screenshot
+export const errWhere = (e) => String((e && e.stack) || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← ");
 S.on(() => {
-  M = buildModel(S.db);
+  // a model that cannot be built from the base must not block sending the changes to GitHub
+  try { M = buildModel(S.db); } catch (e) { console.error(e); toast(`Erreur dans la base : ${e.message} (${errWhere(e)})`, "error"); }
   renderStatus();
   const a = document.activeElement; // do not redraw under someone typing; a clicked button is fine
   if (!view.contains(a) || !a.matches("input:not([type=checkbox]):not([type=radio]), textarea, select")) route(true);
@@ -31,7 +34,7 @@ function renderStatus() {
   el.dataset.state = S.state; $(".status-text", el).textContent = text;
   el.title = S.error || (n ? `${n} ${plural(n, "changement")} pas encore envoyé${n > 1 ? "s" : ""} sur GitHub` : "Tout est enregistré sur GitHub");
 }
-$("#status").addEventListener("click", () => { if (S.error) toast(S.error, "error"); S.sync(); });
+$("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.errorAt ? ` (${S.errorAt})` : ""), "error"); S.sync(); });
 
 // ---------- router ----------
 const ROUTES = [
@@ -52,7 +55,7 @@ function route(soft) {
 // a screen that fails says so (instead of a blank page), with what to send to fix it
 function showError(err, where) {
   console.error(err);
-  const st = String((err && err.stack) || "").split("\n").slice(0, 4).join("\n");
+  const st = errWhere(err) || String((err && err.stack) || "").split("\n").slice(0, 4).join("\n");
   view.innerHTML = `<div class="screen"><h2>Oups, cet écran a planté</h2><p>Écran : <code>${esc(where || location.hash)}</code></p><pre class="errbox">${esc(String((err && err.message) || err))}\n${esc(st)}</pre><p class="cap">Fais une capture de cet écran pour Claude.</p><div class="row"><button class="btn btn-primary" type="button" id="err-reload">Recharger l'appli</button><a class="btn" href="#/">Retour aux listes</a></div></div>`;
   $("#err-reload").addEventListener("click", () => location.reload());
 }

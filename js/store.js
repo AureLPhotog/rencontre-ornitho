@@ -96,7 +96,7 @@ export class Store {
   get ready() { return !!this.cfg.token; }
   get hasData() { return Object.keys(this.files).length > 0; }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  _emit() { this.listeners.forEach((fn) => fn(this)); }
+  _emit() { this.listeners.forEach((fn) => { try { fn(this); } catch (e) { console.error(e); this.errorAt = String(e.stack || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← "); this.renderError = e; } }); }
   _status(state, error = null) { this.state = state; this.error = error; this._emit(); }
   _save() { store(CACHE_KEY, { files: this.files, commit: this.commit, images: this.images }); store(PENDING_KEY, this.pending); }
   _rebuild() { const db = dbFromFiles(this.files); this.pending.forEach((op) => applyOp(db, op)); this.db = db; }
@@ -153,8 +153,9 @@ export class Store {
         }
         throw new GitHubError(409, "Le dépôt change trop vite, réessaie.");
       } catch (e) {
-        this._rebuild(); this._save();
-        this._status(e.status === 0 ? "offline" : "error", e.message);
+        try { this._rebuild(); this._save(); } catch (_) {}
+        this.errorAt = e.status === undefined ? String(e.stack || "").split("\n").filter((l) => /\.js/.test(l)).slice(0, 3).map((l) => (l.match(/([\w-]+\.js)(?:\?[^:]*)?:(\d+):(\d+)/) || []).slice(1).join(":")).filter(Boolean).join(" ← ") : "";
+        try { this._status(e.status === 0 ? "offline" : "error", e.message); } catch (_) {}
       } finally { this.flushing = null; }
     })();
     return this.flushing;
