@@ -100,7 +100,7 @@ export function refuse(meta, { sid, tick }) {
   if (named.length && !named.includes(sid)) return `La photo est étiquetée « ${named.map((x) => M.name(x)).join(", ")} », pas « ${M.name(sid)} ».`;
   if (!tick) return null; // the best photo of a species can be of any day
   if (!tick.d) return "La coche n'a pas de date : date-la d'abord, la photo sera vérifiée sur ce jour-là.";
-  if (!meta.d) return "Impossible de lire la date de prise de vue de cette photo (exporte-la avec ses métadonnées, ou donne le lien de l'original). Photo refusée.";
+  if (!meta.d) return NO_DATE;
   if (meta.d !== tick.d) return `Cette photo a été prise le ${fmtShort(meta.d)} ; la coche est du ${fmtShort(tick.d)}. Ce n'est pas la photo de la coche : refusée.`;
   return null;
 }
@@ -125,6 +125,9 @@ function bestToTick(sid, ph) {
   return { ticks: g };
 }
 
+// a photo without a readable date can still be added, by choice: it is then marked « date non vérifiée »
+const NO_DATE = "Impossible de lire la date de prise de vue de cette photo (exportée sans ses métadonnées ?). Tu peux l'ajouter quand même si c'est bien la photo de cette coche : elle sera notée « date non vérifiée ».";
+
 // ---------- the widget ----------
 // where: { kind: "tick", cle, tick } or { kind: "best", sid }
 export function photoBox(el, where, phSlider) {
@@ -145,6 +148,16 @@ export function photoBox(el, where, phSlider) {
   const say = (t, cls = "") => { msg.className = "msg " + cls; msg.textContent = t; };
   const offer = (meta, previewUrl, save) => {
     const why = refuse(meta, { sid, tick: where.kind === "tick" ? where.tick : null });
+    if (why === NO_DATE) {
+      say(why, "bad");
+      box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">Ajouter quand même (non recommandé)</button></div>`;
+      $("button", box).addEventListener("click", async (ev) => {
+        const b = ev.currentTarget; b.disabled = true; b.textContent = "Envoi…";
+        try { const ph = await save(); store_({ ...ph, nv: true }); box.innerHTML = ""; say("Photo enregistrée (date non vérifiée).", "ok"); }
+        catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
+      });
+      return;
+    }
     if (why) { box.innerHTML = ""; say(why, "bad"); return; }
     say(`Prise le ${meta.d ? fmtShort(meta.d) + (meta.h ? " à " + meta.h : "") : "?"}${meta.keywords.length ? " · mots-clés : " + meta.keywords.slice(0, 6).join(", ") : ""}`, "ok");
     box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">${cur ? "Remplacer par cette photo" : "Ajouter cette photo"}</button></div>`;
@@ -165,7 +178,9 @@ export function photoBox(el, where, phSlider) {
     again();
   };
   // draw the box again with what the base now holds
-  const again = () => { const w = where.kind === "tick" ? { ...where, tick: (M.db.coches[where.cle] || []).find((x) => x.id === where.tick.id) || where.tick } : where; photoBox(el, w, phSlider); };
+  // the screen around the box shows the photo too (tick page, species page): drawn again as a whole
+  const again = () => { window.dispatchEvent(new Event("ro-redraw")); againBox(); };
+  const againBox = () => { const w = where.kind === "tick" ? { ...where, tick: (M.db.coches[where.cle] || []).find((x) => x.id === where.tick.id) || where.tick } : where; photoBox(el, w, phSlider); };
   $(".ph-file", el).addEventListener("change", async (ev) => {
     const f = ev.target.files[0]; if (!f) return; say("Lecture de la photo…");
     try {

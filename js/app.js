@@ -69,6 +69,8 @@ function draw(h) {
   location.replace("#/");
 }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
+// a photo added or removed in a photo box: the whole screen shows it
+window.addEventListener("ro-redraw", () => { const y = scrollY; draw(location.hash); scrollTo(0, y); });
 // the + button on the form already open: a fresh form (a link to the page you are on does nothing by itself)
 document.querySelector("#nav .add").addEventListener("click", (e) => { if (location.hash === "#/ajout") { e.preventDefault(); draw("#/ajout"); scrollTo(0, 0); } });
 function setNav(h) { $$("#nav a").forEach((a) => a.setAttribute("aria-current", h.startsWith(a.getAttribute("href")) && (a.getAttribute("href") !== "#/" || h === "#/" || /^#\/(liste|espece)/.test(h)) ? "page" : "false")); }
@@ -100,7 +102,7 @@ new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtr
 // del: the species, to offer « Supprimer » on each photo
 export function phSlider(photos, name, { del } = {}) {
   if (!photos.length) return "";
-  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.nv ? ' · <span class="miss">date non vérifiée</span>' : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
 }
 export function wirePhotos(root) {
   $$(".phs:not([data-w])", root).forEach((box) => {
