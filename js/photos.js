@@ -137,7 +137,7 @@ function bestToTick(sid, ph) {
     if (ph_ == null || !timed.length) return { why: `Le ${fmtShort(ph.d)} a plusieurs observations de l'espèce : ajoute-la toi-même à la bonne coche.` };
     g = timed.sort((a, b) => Math.abs(a.m - ph_) - Math.abs(b.m - ph_))[0].x;
   }
-  const same = (t) => t.ph && (t.ph.img || t.ph.url) === (ph.img || ph.url);
+  const same = (t) => t.ph && ((t.ph.img || t.ph.url) === (ph.img || ph.url) || (M.picKey(t.ph) && M.picKey(t.ph) === M.picKey(ph)));
   if (g.every(same)) return {};
   if (g.some((t) => t.ph)) return { why: `La coche du ${fmtShort(ph.d)} a déjà sa propre photo : gardée.` };
   return { ticks: g };

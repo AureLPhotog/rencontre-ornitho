@@ -464,7 +464,7 @@ function screenSpecies(sid, q) {
     const style = lif && pf ? { color: "#D7263D", stroke: "#2E9B4F", r: 10, z: 3 } : lif ? { color: "#D7263D", r: 9, z: 2 } : pf ? { color: "#2E9B4F", r: 9, z: 2 } : { color: "#0A7895", r: 6, z: 0 };
     // the photo taken at that point (photo of the tick, or first photo of that day on the photo lists)
     const seen = new Set(), photos = [];
-    ts.forEach((t) => M.photosFor(t, { first: withPhotos(L(t.cle)) }).forEach((p) => { const k = p.img || p.url; if (!seen.has(k)) { seen.add(k); photos.push({ ...p, label: t.ph ? `Photo de la coche · ${L(t.cle).nom}` : "Photo de ce jour-là" }); } }));
+    ts.forEach((t) => M.photosFor(t, { first: withPhotos(L(t.cle)) }).forEach((p) => { const k = M.picKey(p) || p.img || p.url; if (!seen.has(k)) { seen.add(k); photos.push({ ...p, label: t.ph ? `Photo de la coche · ${L(t.cle).nom}` : "Photo de ce jour-là" }); } }));
     return { lat: ts[0].lat, lon: ts[0].lon, ...style, html: `<div class="pop">${phSlider(photos, e.n)}<div class="pop-ticks">${ts.map((t) => `<a class="chip-s" ${cstyle(t.cle)} href="#/coche/${t.cle}/${t.id}">${esc(L(t.cle).nom)}${M.rankOf(t) ? " n°" + M.rankOf(t) : ""}</a>`).join(" ")}</div><small>${[...new Set(ts.map((t) => t.d ? fmtShort(t.d) : ""))].filter(Boolean).join(", ")}${ts[0].l ? " · " + esc(ts[0].l) : ""}</small></div>` };
   });
   view.innerHTML = `<div class="screen">

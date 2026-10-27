@@ -126,8 +126,17 @@ export function buildModel(db) {
   M.bestQ = (sid) => (M.esp.get(sid) || {}).q || null;
   M.liferQ = (sid) => { const t = M.ticks.find((x) => x.e === sid && x.cle === LIFERS); return (t && t.q) || null; };
   M.spQ = (sid) => M.bestQ(sid) || M.liferQ(sid);
+  // one picture whatever its copy: same shooting day and time, same original file name
+  M.picKey = (p) => (p && p.file && p.d ? [p.d, p.h || "", String(p.file).toLowerCase().replace(/\.(jpe?g|cr[23]|nef|arw|dng|tiff?|png|heic)$/, "")].join("|") : null);
   M.allPhotos = (sid) => {
-    const out = [], seen = new Set(), add = (p, label, q) => { const k = p.img || p.url; if (!k || seen.has(k)) return; seen.add(k); out.push({ ...p, label, ...(q ? { q } : {}) }); };
+    // the same picture stored twice (Liste folder and added to a tick, or chosen again as best of) shows once,
+    // with all its roles in its caption
+    const out = [], seen = new Map(), add = (p, label, q) => {
+      const ks = [p.img || p.url, M.picKey(p)].filter(Boolean); if (!ks.length) return;
+      const had = ks.map((k) => seen.get(k)).find(Boolean);
+      if (had) { if (!had.label.split(" · ").includes(label.split(" · ")[0])) had.label += " · " + label; if (!had.q && q) had.q = q; ks.forEach((k) => seen.set(k, had)); return; }
+      const x = { ...p, label, ...(q ? { q } : {}) }; out.push(x); ks.forEach((k) => seen.set(k, x));
+    };
     const ticks = M.ticks.filter((t) => t.e === sid);
     const lif = ticks.find((t) => t.cle === LIFERS), firsts = M.firstPhotos(sid);
     const lifPhoto = lif && (lif.ph || firsts.find((p) => p.d === lif.d));
