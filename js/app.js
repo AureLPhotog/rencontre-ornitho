@@ -660,12 +660,23 @@ function screenTodo() {
     .map((ts) => (withYL ? ts : ts.filter((t) => !isYL(t.cle)))).filter((ts) => ts.length)
     .map((ts) => ({ ts, main: (sel && ts.find((t) => t.cle === sel)) || ts.find((t) => t.cle === LIFERS) || ts[0], folder: M.photoOn(ts[0].e, ts[0].d) }))
     .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
+  // photos without a label (étiquette): the photo of an observation (its own, or the Liste folder's of that day),
+  // one row per observation; and best-of photos
+  const samePic = (a, b) => !!(a && b && ((a.img || a.url) === (b.img || b.url) || (M.picKey(a) && M.picKey(a) === M.picKey(b))));
+  const isBest = (sid, ph) => samePic(M.bestPhoto(sid), ph) && !!(M.esp.get(sid) || {}).q;
+  c.noTag = [...nphG.values()].flat().filter((ts) => !ts.some((t) => t.q)).map((ts) => ({ ts, ph: M.photosFor(ts[0])[0] })).filter((x) => x.ph && anyOn(x.ts) && !isBest(x.ts[0].e, x.ph))
+    .map((x) => ({ ...x, shown: withYL ? x.ts : x.ts.filter((t) => !isYL(t.cle)) })).filter((x) => x.shown.length)
+    .sort((a, b) => (b.ts[0].d || "").localeCompare(a.ts[0].d || "") || M.name(a.ts[0].e).localeCompare(M.name(b.ts[0].e), "fr"));
+  // the photo of an observation that is also the best of: one row, its label goes to both
+  c.noTag.forEach((x) => { if (samePic(M.esp.get(x.ts[0].e).best, x.ph)) x.alsoBest = x.ts[0].e; });
+  if (!sel) [...M.esp.values()].filter((e) => e.best && !e.q && !c.noTag.some((x) => x.alsoBest === e.id)).forEach((e) => c.noTag.unshift({ best: e.id, ph: e.best }));
   const tasks = M.db.taches.filter((t) => !sel || t.cle === sel);
   const cats = [...new Set(M.db.taches.map((t) => t.cat))];
   const und = new Map(); c.undated.forEach((t) => { if (!und.has(t.cle)) und.set(t.cle, []); und.get(t.cle).push(t); });
   const lastUndo = S.undos[S.undos.length - 1];
   view.innerHTML = `<div class="screen keep-scroll"><div class="tdhead"><h2>À faire</h2>${lastUndo ? `<button type="button" class="btn undo" id="td-undo" title="Annuler : ${esc(lastUndo.label)}">↶ Annuler<small>${esc(lastUndo.label)}</small></button>` : ""}</div>
     <div class="tdbar"><label class="tdlist">Liste<select class="field" id="tdl"><option value="">Toutes les listes</option>${M.listes.map((l) => `<option value="${l.cle}" ${l.cle === sel ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></label>
+    <label class="tdlist">Critère<select class="field" id="tdc"></select></label>
     <nav class="tdnav" id="tdnav" aria-label="Catégories"></nav></div>
     ${c.outside.length ? `<section data-n="${c.outside.length}"><h3 class="minor">Coches hors de leur liste</h3><p class="cap">Le lieu de ces coches n'est pas dans le secteur de la liste. Corrige le lieu, ou supprime la coche si elle n'a rien à faire là.</p><ul class="todo">${c.outside.slice(0, 80).map((x) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.l || "")} · ${esc(x.why)}</small></span><a class="btn" href="#/coche/${x.t.cle}/${x.t.id}/modifier">Corriger</a></li>`).join("")}</ul></section>` : ""}
     ${c.zoneFirst.length ? `<section data-n="${c.zoneFirst.length}"><h3 class="minor">Première donnée de la zone · ${c.zoneFirst.length}</h3><p class="cap">Une liste de région, de département ou de commune commence à ta première photo prise dans la zone, quelle que soit la liste qui la porte (Photo France, Lifers, year list, Rhône, Jardin…). Ici, une coche placée dans la zone est plus ancienne que celle de la liste, ou la liste n'a pas encore l'espèce.</p><ul class="todo">
@@ -684,6 +695,7 @@ function screenTodo() {
     </ul></section>` : ""}
     <section data-n="${c.noPlace.length}"><h3 class="minor">Sans GPS ou sans lieu · ${c.noPlace.length}</h3><p class="cap">Une ligne par observation (même espèce, même jour), avec les listes concernées. « Corriger » ouvre la coche ; coche « même observation » dans le formulaire pour que les autres listes suivent.</p>${c.noPlace.length ? `<ul class="todo">${c.noPlace.slice(0, 150).map((x) => `<li><span>${nameLink(x.e)} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${x.d ? esc(fmtShort(x.d)) : "sans date"}${x.main.l ? " · " + esc(x.main.l) : ""} · <span class="miss">${[x.gps ? "sans GPS" : "", x.name ? "sans nom de lieu" : ""].filter(Boolean).join(", ")}</span></small></span><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}/modifier">Corriger</a></li>`).join("")}${c.noPlace.length > 150 ? `<li><span class="cap">… et ${c.noPlace.length - 150} autres, qui s'afficheront au fur et à mesure.</span></li>` : ""}</ul>` : '<p class="cap">Tout est placé.</p>'}</section>
     <section data-n="${c.noPhoto.length}"><h3 class="minor">Coches sans photo · ${c.noPhoto.length}</h3>${sel && isYL(sel) ? "" : `<div class="seg" role="group" aria-label="Year lists"><button type="button" data-nphyl="0" aria-pressed="${!withYL}">Sans les year lists</button><button type="button" data-nphyl="1" aria-pressed="${withYL}">Avec les year lists</button></div>`}<p class="cap">Une ligne par observation : sa photo vaut pour toutes ses listes. « Ajouter une photo » ouvre la coche ; « Pas de photo » la sort d'ici pour de bon. 📁 : ton dossier Liste a des photos de l'espèce ce jour-là.</p>${c.noPhoto.length ? `<ul class="todo">${c.noPhoto.slice(0, 150).map((x, i) => `<li><span>${nameLink(x.main.e)}${x.folder ? ' <span title="Photos ce jour-là dans ton dossier Liste">📁</span>' : ""} ${[...new Set(x.ts.map((t) => t.cle))].map(chip).join(" ")}<small>${esc(fmtShort(x.main.d))}${x.main.l ? " · " + esc(x.main.l) : ""}</small></span><span class="row"><a class="btn" href="#/coche/${x.main.cle}/${x.main.id}">Ajouter une photo</a><button class="btn" data-noph="${i}">Pas de photo</button></span></li>`).join("")}${c.noPhoto.length > 150 ? `<li><span class="cap">… et ${c.noPhoto.length - 150} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes tes coches photo ont leur photo.</p>'}</section>
+    <section data-n="${c.noTag.length}"><h3 class="minor">Photos sans étiquette · ${c.noTag.length}</h3>${sel && isYL(sel) ? "" : `<div class="seg" role="group" aria-label="Year lists"><button type="button" data-nphyl="0" aria-pressed="${!withYL}">Sans les year lists</button><button type="button" data-nphyl="1" aria-pressed="${withYL}">Avec les year lists</button></div>`}<p class="cap">Une ligne par photo : l'étiquette vaut pour l'observation dans toutes ses listes. Touche l'étiquette qui convient.</p>${c.noTag.length ? `<ul class="todo">${c.noTag.slice(0, 120).map((x, i) => `<li class="has-ph"><span class="td-ph">${phImg(x.ph.img || x.ph.url, M.name(x.best || x.ts[0].e))}</span><span>${x.best ? `<a href="#/espece/${esc(x.best)}">${esc(M.name(x.best))}</a> <span class="chip-s">best of</span>` : `<a href="#/espece/${esc(x.ts[0].e)}">${esc(M.name(x.ts[0].e))}</a>${x.alsoBest ? ' <span class="chip-s">best of</span>' : ""} ${[...new Set(x.shown.map((t) => t.cle))].map(chip).join(" ")}`}<small>${esc(x.ph.d ? fmtShort(x.ph.d) : x.ts ? fmtShort(x.ts[0].d) : "")}${x.ph.file ? " · " + esc(x.ph.file) : ""}</small></span><span class="qpick">${QUALITES.map((q) => `<button type="button" class="qtag" style="--c:${q.c}" data-qset="${i}|${esc(q.v)}">${q.court}</button>`).join("")}</span></li>`).join("")}${c.noTag.length > 120 ? `<li><span class="cap">… et ${c.noTag.length - 120} autres : choisis une liste en haut pour les voir.</span></li>` : ""}</ul>` : '<p class="cap">Toutes tes photos ont leur étiquette.</p>'}</section>
     <section data-n="${c.undated.length}"><h3 class="minor">Coches sans date</h3><p class="cap">${[...und].map(([k, a]) => `<a href="#" data-undated="${k}">${esc(L(k).nom)} ${a.length}</a>`).join(" · ") || "Aucune."}</p></section>
     ${cats.map((cat) => { const vs = tasks.filter((t) => t.cat === cat).map(taskView), open = vs.filter((v) => !v.done), shut = vs.length - open.length;
       return `<section data-n="${open.length}"><h3 class="minor">${esc(cat)} · ${open.length}${shut ? ` <span class="cap">(${shut} ${plural(shut, "réglée")})</span>` : ""}</h3>${open.length ? `<ul class="todo">${open.map((v) => v.html).join("")}</ul>` : '<p class="cap">Tout est réglé.</p>'}</section>`; }).join("")}
@@ -691,6 +703,12 @@ function screenTodo() {
   // index of the categories: one chip per section, with what is left in it; a tap goes there
   const secs = $$(".screen > section", view);
   $$("[data-nphyl]", view).forEach((b) => b.addEventListener("click", () => { saveUI({ nphYL: b.dataset.nphyl === "1" }); const y = scrollY; screenTodo(); scrollTo(0, y); }));
+  $$("[data-qset]", view).forEach((b) => b.addEventListener("click", () => {
+    const [i, v] = b.dataset.qset.split("|"), x = c.noTag[+i]; if (!x) return;
+    if (x.best) S.apply({ kind: "set-espece", id: x.best, patch: { q: v } }, `Étiquette best of : ${M.name(x.best)} → ${v}`);
+    else S.apply([...x.ts.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { q: v } })), ...(x.alsoBest ? [{ kind: "set-espece", id: x.alsoBest, patch: { q: v } }] : [])], `Étiquette photo : ${M.name(x.ts[0].e)} (${fmtShort(x.ts[0].d)})${x.alsoBest ? " et best of" : ""} → ${v}`);
+    toast(`Étiquette : ${qualite(v).court}.`);
+  }));
   $$("[data-noph]", view).forEach((b) => b.addEventListener("click", () => {
     const x = c.noPhoto[+b.dataset.noph]; if (!x) return;
     S.apply(x.ts.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch: { nph: true } })), `Pas de photo : ${M.name(x.main.e)} (${fmtShort(x.main.d)})`);
@@ -714,6 +732,11 @@ function screenTodo() {
     const top = $(".tdbar").getBoundingClientRect().top; if (top < 0 || scrollY > 0) scrollTo({ top: 0 });
   }));
   const onChip = nav.querySelector(".on"); if (onChip) nav.scrollLeft = Math.max(0, onChip.offsetLeft - 16);
+  // the same choice as a menu: every criterion with what is left in it
+  const tdc = $("#tdc");
+  tdc.innerHTML = live.map((x, i) => `<option value="${i}" ${x === cur ? "selected" : ""}>${esc(x.title)} (${x.n})</option>`).join("") || '<option>Tout est à jour</option>';
+  tdc.addEventListener("change", () => { const a = $(`[data-td="${tdc.value}"]`, nav); if (a) a.click(); });
+  $$("[data-td]", nav).forEach((a) => a.addEventListener("click", () => { tdc.value = a.dataset.td; }));
   $$("[data-act]").forEach((b) => b.addEventListener("click", () => { const [id, a] = b.dataset.act.split(":"); taskAct(id, a); }));
   $$("[data-task]").forEach((i) => i.addEventListener("change", () => { const t = tasks.find((x) => x.id === i.dataset.task); S.apply({ kind: "set-tache", id: t.id, patch: { fait: i.checked || null } }, `${i.checked ? "Fait" : "À refaire"} : ${t.esp ? t.esp + " · " : ""}${t.quoi}`); }));
   $$("[data-undated]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); saveUI({ jf: { q: "", cle: a.dataset.undated, year: "none", miss: "" } }); go("#/journal"); }));
