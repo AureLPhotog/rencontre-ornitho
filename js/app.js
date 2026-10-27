@@ -264,7 +264,7 @@ function screenTick(cle, id) {
     ${renumMv ? `<p class="tkwarn">Le n°${t.n} n'est plus dans l'ordre des dates : par date, cette coche serait n°${renumMv.to}. <button type="button" class="btn" id="tk-renum">Renuméroter ${esc(l.nom)} par date</button><small class="cap">${renumAll.length} ${plural(renumAll.length, "coche")} ${renumAll.length > 1 ? "changent" : "change"} de numéro.</small></p>` : ""}
     <div class="row"><a class="btn" href="#/coche/${cle}/${id}/modifier">Modifier la coche</a></div>
     ${others.length ? `<section class="panel"><h3 class="minor">L'espèce dans tes autres listes</h3><p class="cap">Une autre observation y fait la coche. « Remplacer » y met celle-ci à la place (date, lieu, photo), en gardant la coche de la liste.</p><ul class="todo">${others.map((x) => `<li><span>${chip(x.cle)}<small>${tickLine(x) || "sans date ni lieu"}</small></span><span class="row"><button type="button" class="btn" data-repl="${x.cle}/${x.id}">Remplacer par celle-ci</button></span></li>`).join("")}</ul></section>` : ""}
-    ${serie.length > 1 ? `<section class="panel" id="tk-serie"><h3 class="minor">Série de ${serie.length} photos ce jour-là</h3><p class="cap">${chosen ? "Photo choisie. Touche une autre photo pour la changer." : "Choisis la photo de la coche : elle vaut pour l'observation dans toutes ses listes. Les autres photos de la série sont ensuite supprimées de ta base (tes originaux ne bougent pas)."}</p><div class="ser-grid">${serie.map((p, i) => `<button type="button" class="ser-pk${M.picKey(p) === curKey ? " on" : ""}" data-ser="${i}" title="${esc(p.file)} · ${esc(p.h || "")}"><img class="ph" data-ph="${esc(p.img)}" data-alt="" alt=""><small>${esc(p.h || "")}</small></button>`).join("")}</div>${!chosen && curKey && serie.some((p) => M.picKey(p) === curKey) ? '<div class="row"><button type="button" class="btn btn-primary" id="ser-keep">Garder la photo actuelle</button></div>' : ""}</section>` : ""}
+    ${serie.length > 1 ? `<section class="panel" id="tk-serie"><h3 class="minor">Série de ${serie.length} photos ce jour-là</h3><p class="cap">${chosen ? "Photo choisie. Touche une autre photo pour la changer." : "Touche une photo pour la voir en grand, puis « Choisir cette photo » : elle vaut pour l'observation dans toutes ses listes. Les autres photos de la série sont ensuite supprimées de ta base (tes originaux ne bougent pas)."}</p><div class="ser-grid">${serie.map((p, i) => `<button type="button" class="ser-pk${M.picKey(p) === curKey ? " on" : ""}" data-ser="${i}" title="${esc(p.file)} · ${esc(p.h || "")}"><img class="ph" data-ph="${esc(p.img)}" data-alt="" alt=""><small>${esc(p.h || "")}</small></button>`).join("")}</div>${!chosen && curKey && serie.some((p) => M.picKey(p) === curKey) ? '<div class="row"><button type="button" class="btn btn-primary" id="ser-keep">Garder la photo actuelle</button></div>' : ""}</section>` : ""}
     <div id="tk-ph"></div>
   </div>`;
   if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
@@ -288,17 +288,36 @@ function screenTick(cle, id) {
     try { const n = await S.deleteImages([...new Set([...dels, ...old])], `Série ${e.n} (${fmtShort(t.d)}) : photos non choisies supprimées`); if (n) toast(`${n} photo${n > 1 ? "s" : ""} de la série supprimée${n > 1 ? "s" : ""} de ta base.`); }
     catch (err) { toast("Photos de la série pas supprimées : " + err.message, "error"); }
   };
-  $$("[data-ser]").forEach((b) => b.addEventListener("click", () => {
-    const p = serie[+b.dataset.ser], obsT = [t, ...twins]; if (!p) return;
+  // a tap on a photo of the series shows it big; it is chosen only with « Choisir cette photo »
+  const viewSerie = (start) => {
+    let i = start;
+    const box = document.createElement("div"); box.className = "lightbox serview";
+    box.innerHTML = `<img alt=""><div class="sv-bar"><button type="button" class="sv-prev" aria-label="Photo précédente">‹</button><span class="sv-n"></span><button type="button" class="sv-next" aria-label="Photo suivante">›</button></div><div class="sv-act"><button type="button" class="btn btn-primary sv-pick">Choisir cette photo</button><button type="button" class="btn sv-close">Fermer</button></div>`;
+    const im = $("img", box);
+    const show = () => { const p = serie[i]; const th = $(`[data-ser="${i}"] img`, view); im.src = th && th.src ? th.src : ""; if (!im.getAttribute("src")) S.imageUrl(p.img).then((u) => { if (u && serie[i] === p) im.src = u; }); $(".sv-n", box).textContent = `${i + 1} / ${serie.length} · ${p.h || ""}${M.picKey(p) === curKey ? " · photo actuelle" : ""}`; $(".sv-pick", box).textContent = M.picKey(p) === curKey ? "Garder cette photo" : "Choisir cette photo"; };
+    const close = () => { box.remove(); document.removeEventListener("keydown", key); };
+    const move = (d) => { i = (i + d + serie.length) % serie.length; show(); };
+    const key = (ev) => { if (ev.key === "Escape") close(); if (ev.key === "ArrowLeft") move(-1); if (ev.key === "ArrowRight") move(1); };
+    box.addEventListener("click", (ev) => { ev.stopPropagation(); if (ev.target === box) close(); });
+    $(".sv-prev", box).addEventListener("click", () => move(-1)); $(".sv-next", box).addEventListener("click", () => move(1));
+    $(".sv-close", box).addEventListener("click", close);
+    $(".sv-pick", box).addEventListener("click", () => { close(); pick(i); });
+    let x0 = null; box.addEventListener("touchstart", (ev) => { x0 = ev.touches[0].clientX; }, { passive: true });
+    box.addEventListener("touchend", (ev) => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) move(dx < 0 ? 1 : -1); }, { passive: true });
+    document.addEventListener("keydown", key); document.body.appendChild(box); show();
+  };
+  $$("[data-ser]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); viewSerie(+b.dataset.ser); }));
+  const pick = (k) => {
+    const p = serie[k], obsT = [t, ...twins]; if (!p) return;
     const same = curKey && M.picKey(p) === curKey;
     const ph = { img: p.img, d: p.d, h: p.h || null, file: p.file, src: "serie" };
     S.apply([...obsT.map((x) => ({ kind: "set-tick", cle: x.cle || cle, id: x.id, patch: same && x.ph ? { phc: true } : { ph: same && !x.ph ? null : ph, phc: true, nph: null, ...(same ? {} : { q: null }) } })), { kind: "set-serie", key: t.e + "|" + t.d, items: [[p.img, p.h || "", p.file]] }],
       `Photo choisie : ${e.n} (${fmtShort(t.d)}) · ${p.file}`);
     toast(same ? "Photo gardée." : "Photo choisie."); closeSerie(same && cur0 ? cur0.img : p.img);
     const y = scrollY; screenTick(cle, id); scrollTo(0, y);
-  }));
+  };
   if (UI.goSerie) { saveUI({ goSerie: false }); const se = $("#tk-serie"); if (se) setTimeout(() => se.scrollIntoView({ block: "start" }), 50); }
-  const keep = $("#ser-keep"); if (keep) keep.addEventListener("click", () => { const i = serie.findIndex((p) => M.picKey(p) === curKey); const b = $(`[data-ser="${i}"]`); if (b) b.click(); });
+  const keep = $("#ser-keep"); if (keep) keep.addEventListener("click", () => { const i = serie.findIndex((p) => M.picKey(p) === curKey); if (i >= 0) pick(i); });
   const un = $("#tk-unnph"); if (un) un.addEventListener("click", () => { S.apply([t, ...twins].filter((x) => x.nph).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { nph: null } })), `Photo à chercher : ${e.n}`); un.parentElement.remove(); toast("Remise dans « Coches sans photo »."); });
   // previous / next tick of the list it was opened from (arrows, swipe, keyboard)
   const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
