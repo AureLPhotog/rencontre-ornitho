@@ -8,7 +8,7 @@ import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { distKm, whereIs, lieuDit, lieuOuessant, vagueName } from "./geo.js";
+import { distKm, whereIs, lieuDit, lieuOuessant, vagueName, outsideOf } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -242,6 +242,8 @@ function screenTick(cle, id) {
   const photos = M.photosFor(t);
   const twins = t.d ? M.ticks.filter((x) => x !== t && M.sameObs(t, x)) : [];
   const renumAll = l.numerotee && t.d ? M.renumber(cle) : [], renumMv = renumAll.find((m) => m.t.id === t.id);
+  // the species in the other lists, made by another sighting (a year list only of the same year; not « vu »)
+  const others = t.d ? M.ticks.filter((x) => x.e === t.e && x.cle !== cle && x.cle !== VU && !twins.includes(x) && !(x.d === t.d && M.sameObs(t, x)) && M.sameYearOk(x, t.d)) : [];
   view.innerHTML = `<div class="screen">
     <header class="phead"><a class="back" href="javascript:history.back()">← Retour</a>
       <p class="cap">${chip(cle)}${rk ? ` <b>n°${rk}</b>` : ""}</p>
@@ -258,6 +260,7 @@ function screenTick(cle, id) {
     ${t.nph ? `<p class="cap">Marquée « pas de photo de cette coche ». <button type="button" class="linkish" id="tk-unnph">Annuler</button></p>` : ""}
     ${renumMv ? `<p class="tkwarn">Le n°${t.n} n'est plus dans l'ordre des dates : par date, cette coche serait n°${renumMv.to}. <button type="button" class="btn" id="tk-renum">Renuméroter ${esc(l.nom)} par date</button><small class="cap">${renumAll.length} ${plural(renumAll.length, "coche")} ${renumAll.length > 1 ? "changent" : "change"} de numéro.</small></p>` : ""}
     <div class="row"><a class="btn" href="#/coche/${cle}/${id}/modifier">Modifier la coche</a></div>
+    ${others.length ? `<section class="panel"><h3 class="minor">L'espèce dans tes autres listes</h3><p class="cap">Une autre observation y fait la coche. « Remplacer » y met celle-ci à la place (date, lieu, photo), en gardant la coche de la liste.</p><ul class="todo">${others.map((x) => `<li><span>${chip(x.cle)}<small>${tickLine(x) || "sans date ni lieu"}</small></span><span class="row"><button type="button" class="btn" data-repl="${x.cle}/${x.id}">Remplacer par celle-ci</button></span></li>`).join("")}</ul></section>` : ""}
     <div id="tk-ph"></div>
   </div>`;
   if (t.lat != null) mapView($("#tkm"), [{ lat: t.lat, lon: t.lon, color: M.color(cle), r: 9, z: 1, html: `<b>${esc(e.n)}</b><br>${esc(t.l || "")}` }]);
@@ -265,6 +268,15 @@ function screenTick(cle, id) {
   wirePhotos(view);
   $$("[data-tq]").forEach((b) => b.addEventListener("click", () => { const v = t.q === b.dataset.tq ? null : b.dataset.tq; S.apply([t, ...twins].filter((x) => (x.q || null) !== v).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { q: v } })), `Étiquette photo : ${e.n} (${[t, ...twins].map((x) => L(x.cle).nom).join(", ")}) → ${v || "aucune"}`); toast(v ? `Étiquette : ${qualite(v).court}.` : "Étiquette retirée."); const y = scrollY; screenTick(cle, id); scrollTo(0, y); }));
   const rn = $("#tk-renum"); if (rn) rn.addEventListener("click", () => { const mv = M.renumber(cle); S.apply(mv.map((m) => ({ kind: "set-tick", cle, id: m.t.id, patch: { n: m.to } })), `${l.nom} : ${mv.length} coches renumérotées par date`); toast("Numéros remis dans l'ordre des dates."); const y = scrollY; screenTick(cle, id); scrollTo(0, y); });
+  // put this sighting in place of another list's tick (its number stays; the numbers follow the dates again)
+  $$("[data-repl]").forEach((b) => b.addEventListener("click", async () => {
+    if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Confirmer le remplacement"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Remplacer par celle-ci"; } }, 4000); return; }
+    const [oc, oid] = b.dataset.repl.split("/"), o = M.ticks.find((x) => x.cle === oc && x.id === oid), ol = L(oc); if (!o) return;
+    if (t.lat != null) { b.disabled = true; b.textContent = "Vérification du lieu…"; const out = outsideOf(ol, await whereIs(t.lat, t.lon), t, t.d); if (out) { toast(`Pas dans ${ol.nom} : ${out}.`, "error"); b.disabled = false; delete b.dataset.armed; b.textContent = "Remplacer par celle-ci"; return; } }
+    const patch = {}; ["d", "h", "sh", "sd", "l", "lat", "lon", "sl", "p", "ph", "q", "t"].forEach((k) => { patch[k] = t[k] ?? null; }); patch.nph = null; patch.vf = null;
+    S.apply({ kind: "set-tick", cle: oc, id: oid, patch }, `${ol.nom} : ${e.n} remplacée par l'observation du ${fmtShort(t.d)}${t.l ? " (" + t.l + ")" : ""} (avant : ${o.d ? fmtShort(o.d) : "sans date"})`);
+    toast(`${ol.nom} : coche remplacée par celle-ci.`); const y = scrollY; screenTick(cle, id); scrollTo(0, y);
+  }));
   const un = $("#tk-unnph"); if (un) un.addEventListener("click", () => { S.apply([t, ...twins].filter((x) => x.nph).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { nph: null } })), `Photo à chercher : ${e.n}`); un.parentElement.remove(); toast("Remise dans « Coches sans photo »."); });
   // previous / next tick of the list it was opened from (arrows, swipe, keyboard)
   const nav = UI.nav && UI.nav.refs ? UI.nav : null, at = nav ? nav.refs.indexOf(cle + "/" + id) : -1;
