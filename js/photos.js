@@ -15,16 +15,28 @@ function exifDate(view, start, len) {
   const u16 = (o) => view.getUint16(t + o, le), u32 = (o) => view.getUint32(t + o, le);
   const str = (o, n) => { let s = ""; for (let i = 0; i < n; i++) { const c = view.getUint8(t + o + i); if (!c) break; s += String.fromCharCode(c); } return s; };
   const readIfd = (off) => { const out = {}; const n = u16(off); for (let i = 0; i < n; i++) { const e = off + 2 + i * 12; out[u16(e)] = { type: u16(e + 2), count: u32(e + 4), val: e + 8 }; } return out; };
-  const ifd0 = readIfd(u32(4));
+  const ifd0 = readIfd(u32(4)), out = { when: null, lat: null, lon: null };
   const exifPtr = ifd0[0x8769] ? u32(ifd0[0x8769].val) : null;
-  if (exifPtr == null) return null;
-  const ex = readIfd(exifPtr);
-  const tag = ex[0x9003] || ex[0x9004]; // DateTimeOriginal, else DateTimeDigitized (never the export date)
-  if (!tag) return null;
-  return str(tag.count > 4 ? u32(tag.val) : tag.val, tag.count);
+  if (exifPtr != null) {
+    const ex = readIfd(exifPtr);
+    const tag = ex[0x9003] || ex[0x9004]; // DateTimeOriginal, else DateTimeDigitized (never the export date)
+    if (tag) out.when = str(tag.count > 4 ? u32(tag.val) : tag.val, tag.count);
+  }
+  // GPS (phones, cameras with GPS, or geotagged in Lightroom): degrees, minutes, seconds as rationals
+  const gpsPtr = ifd0[0x8825] ? u32(ifd0[0x8825].val) : null;
+  if (gpsPtr != null) {
+    try {
+      const g = readIfd(gpsPtr);
+      const dms = (e) => { if (!e) return null; const o = u32(e.val); const r = (k) => { const d = u32(o + 8 * k + 4); return d ? u32(o + 8 * k) / d : 0; }; return r(0) + r(1) / 60 + r(2) / 3600; };
+      const ref = (e) => (e ? String.fromCharCode(view.getUint8(t + e.val)) : "");
+      const la = dms(g[2]), lo = dms(g[4]);
+      if (la != null && lo != null && (la || lo)) { out.lat = +(la * (ref(g[1]) === "S" ? -1 : 1)).toFixed(6); out.lon = +(lo * (ref(g[3]) === "W" ? -1 : 1)).toFixed(6); }
+    } catch (_) {}
+  }
+  return out;
 }
 export function readMeta(buf) {
-  const v = new DataView(buf), out = { when: null, keywords: [] };
+  const v = new DataView(buf), out = { when: null, keywords: [], lat: null, lon: null };
   if (v.getUint16(0) !== 0xffd8) return out;
   let i = 2;
   while (i + 4 < v.byteLength) {
@@ -33,7 +45,7 @@ export function readMeta(buf) {
     const len = v.getUint16(i + 2);
     if (m === 0xe1) {
       const head = String.fromCharCode(...new Uint8Array(buf, i + 4, Math.min(29, len - 2)));
-      if (head.startsWith("Exif\0\0")) { try { out.when = out.when || exifDate(v, i + 4, len - 2); } catch (_) {} }
+      if (head.startsWith("Exif\0\0")) { try { const x = exifDate(v, i + 4, len - 2); out.when = out.when || x.when; if (x.lat != null && out.lat == null) { out.lat = x.lat; out.lon = x.lon; } } catch (_) {} }
       else if (head.startsWith("http://ns.adobe.com/xap/1.0/")) {
         const xmp = new TextDecoder().decode(new Uint8Array(buf, i + 4, len - 2));
         const subj = xmp.match(/<dc:subject>([\s\S]*?)<\/dc:subject>/);
@@ -46,7 +58,7 @@ export function readMeta(buf) {
   }
   // "2020:05:11 09:50:10" -> date + time
   const m = out.when && out.when.match(/^(\d{4})[:-](\d\d)[:-](\d\d)[ T](\d\d):(\d\d)/);
-  return { d: m ? `${m[1]}-${m[2]}-${m[3]}` : null, h: m ? `${m[4]}:${m[5]}` : null, keywords: out.keywords };
+  return { d: m ? `${m[1]}-${m[2]}-${m[3]}` : null, h: m ? `${m[4]}:${m[5]}` : null, keywords: out.keywords, lat: out.lat, lon: out.lon };
 }
 
 // a copy small enough for the repository (and for a phone)
@@ -84,7 +96,8 @@ export async function flickrPhoto(url) {
   const taken = p.dates && +p.dates.takenunknown !== 1 ? p.dates.taken : null; // "2020-05-11 09:50:10", local time
   return { url: pick.source, page: (p.urls && p.urls.url && p.urls.url[0] && p.urls.url[0]._content) || `https://www.flickr.com/photos/${p.owner.nsid}/${id}/`,
     d: taken ? taken.slice(0, 10) : null, h: taken ? taken.slice(11, 16) : null, file: (p.title && p.title._content) || `Flickr ${id}`,
-    keywords: [...((p.tags && p.tags.tag) || []).map((x) => x.raw), (p.title && p.title._content) || ""].filter(Boolean) };
+    keywords: [...((p.tags && p.tags.tag) || []).map((x) => x.raw), (p.title && p.title._content) || ""].filter(Boolean),
+    lat: p.location && p.location.latitude ? +p.location.latitude : null, lon: p.location && p.location.longitude ? +p.location.longitude : null };
 }
 
 // ---------- the checks ----------
@@ -95,12 +108,17 @@ function speciesOfKeyword(k) {
   return null;
 }
 // null when the photo can be that one, else why it is refused
-export function refuse(meta, { sid, tick }) {
+export function refuse(meta, { sid, tick, cle }) {
   const named = [...new Set(meta.keywords.map(speciesOfKeyword).filter(Boolean))];
   if (named.length && !named.includes(sid)) return `La photo est étiquetée « ${named.map((x) => M.name(x)).join(", ")} », pas « ${M.name(sid)} ».`;
   if (!tick) return null; // the best photo of a species can be of any day
-  if (!tick.d) return "La coche n'a pas de date : date-la d'abord, la photo sera vérifiée sur ce jour-là.";
   if (!meta.d) return NO_DATE;
+  if (!tick.d) {
+    // the tick takes the photo's date; a year list only a photo of its year
+    const l = M.liste.get(cle) || {};
+    if (l.type === "annee" && !M.sameYearOk({ ...tick, cle }, meta.d)) return `Cette photo a été prise le ${fmtShort(meta.d)} : pas en ${l.annee || cle.slice(2)}, ce n'est pas la photo de cette year list. Refusée.`;
+    return null;
+  }
   if (meta.d !== tick.d) return `Cette photo a été prise le ${fmtShort(meta.d)} ; la coche est du ${fmtShort(tick.d)}. Ce n'est pas la photo de la coche : refusée.`;
   return null;
 }
@@ -137,7 +155,7 @@ export function photoBox(el, where, phSlider) {
   const setObs = (ph, label) => S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: ph ? { ph, nph: null } : { ph } })), label);
   const title = where.kind === "tick" ? `Photo de la coche · ${esc(M.liste.get(where.cle).nom)}` : "Meilleure photo (best of)";
   const lists = where.kind === "tick" ? obs().map((x) => M.liste.get(x.cle || where.cle).nom) : [];
-  const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. Elle doit avoir été prise le jour de la coche${where.tick.d ? ` (${fmtShort(where.tick.d)})` : ""} : sa date de prise de vue est vérifiée.` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
+  const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. ${where.tick.d ? `Elle doit avoir été prise le jour de la coche (${fmtShort(where.tick.d)}) : sa date de prise de vue est vérifiée.` : `La coche n'a pas de date : elle prendra celle de la photo${M.liste.get(where.cle) && M.liste.get(where.cle).type === "annee" ? " (une photo de l'année de la year list)" : ""}, et son GPS si elle en a un.`}` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
   el.innerHTML = `<section class="panel phbox"><h3 class="minor">${title}</h3><p class="cap">${help}</p>
     <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? "Photo de la coche" : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
     <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}</div>
@@ -147,13 +165,13 @@ export function photoBox(el, where, phSlider) {
   const msg = $(".msg", el), box = $(".ph-new", el);
   const say = (t, cls = "") => { msg.className = "msg " + cls; msg.textContent = t; };
   const offer = (meta, previewUrl, save) => {
-    const why = refuse(meta, { sid, tick: where.kind === "tick" ? where.tick : null });
+    const why = refuse(meta, { sid, tick: where.kind === "tick" ? where.tick : null, cle: where.cle });
     if (why === NO_DATE) {
       say(why, "bad");
       box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">Ajouter quand même (non recommandé)</button></div>`;
       $("button", box).addEventListener("click", async (ev) => {
         const b = ev.currentTarget; b.disabled = true; b.textContent = "Envoi…";
-        try { const ph = await save(); store_({ ...ph, nv: true }); box.innerHTML = ""; say("Photo enregistrée (date non vérifiée).", "ok"); }
+        try { const ph = await save(); store_({ ...ph, nv: true }, undefined, meta); box.innerHTML = ""; say("Photo enregistrée (date non vérifiée).", "ok"); }
         catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
       });
       return;
@@ -163,11 +181,23 @@ export function photoBox(el, where, phSlider) {
     box.innerHTML = `<img class="ph" src="${esc(previewUrl)}" alt=""><div class="row"><button type="button" class="btn btn-primary">${cur ? "Remplacer par cette photo" : "Ajouter cette photo"}</button></div>`;
     $("button", box).addEventListener("click", async (ev) => {
       const b = ev.currentTarget; b.disabled = true; b.textContent = "Envoi…";
-      try { const ph = await save(); store_(ph); box.innerHTML = ""; say("Photo enregistrée.", "ok"); }
+      try { const ph = await save(); store_(ph, undefined, meta); box.innerHTML = ""; say("Photo enregistrée.", "ok"); }
       catch (err) { b.disabled = false; b.textContent = "Réessayer"; say(err.message, "bad"); }
     });
   };
-  const store_ = (ph, q) => {
+  const store_ = (ph, q, meta) => {
+    if (where.kind === "tick" && !where.tick.d && ph.d) {
+      // an undated tick takes the date of its photo (and its GPS when the tick has no place); the same sighting
+      // in the other lists (same day) gets the photo too
+      const t = where.tick, patch = { ph, nph: null, d: ph.d, h: ph.h || null, sh: ph.h ? "photo" : null };
+      const gps = t.lat == null && meta && meta.lat != null; if (gps) { patch.lat = meta.lat; patch.lon = meta.lon; }
+      const nt = { ...t, ...patch, cle: where.cle };
+      const twins = M.ticks.filter((x) => !(x.cle === where.cle && x.id === t.id) && x.d === ph.d && M.sameObs(nt, x) && !x.ph);
+      S.apply([{ kind: "set-tick", cle: where.cle, id: t.id, patch, src: "photo" }, ...twins.map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { ph, nph: null } }))],
+        `Photo de la coche : ${M.name(sid)} (${M.liste.get(where.cle).nom}) · date de la photo ${fmtShort(ph.d)}${gps ? " et son GPS" : ""}`);
+      toast(`Photo enregistrée. La coche prend sa date (${fmtShort(ph.d)}${ph.h ? " " + ph.h : ""})${gps ? " et son GPS" : ""}${twins.length ? `, et la photo va aussi sur ${twins.map((x) => M.liste.get(x.cle).nom).join(", ")}` : ""}.`);
+      again(); return;
+    }
     if (where.kind === "tick") { setObs(ph, `Photo de la coche : ${M.name(sid)} (${obs().map((x) => M.liste.get(x.cle || where.cle).nom).join(", ")})`); toast("Photo enregistrée."); again(); return; }
     // a best-of photo taken the day of a tick without photo becomes the photo of that observation too
     const to = bestToTick(sid, ph);
