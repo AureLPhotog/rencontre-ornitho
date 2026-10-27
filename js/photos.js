@@ -155,15 +155,17 @@ const NO_DATE = "Impossible de lire la date de prise de vue de cette photo (expo
 // where: { kind: "tick", cle, tick } or { kind: "best", sid }
 export function photoBox(el, where, phSlider) {
   const sid = where.kind === "tick" ? where.tick.e : where.sid;
-  const cur = where.kind === "tick" ? where.tick.ph : (M.esp.get(sid) || {}).best;
+  // a tick's photo: the one added to it, else the photo of the Liste folder taken that day (the one shown everywhere)
+  const folder = where.kind === "tick" && !where.tick.ph ? (M.photosFor(where.tick)[0] || null) : null;
+  const cur = where.kind === "tick" ? where.tick.ph || folder : (M.esp.get(sid) || {}).best;
   const obs = () => { if (where.kind !== "tick") return []; const t = where.tick; return [t, ...(t.d ? M.ticks.filter((x) => !(x.cle === where.cle && x.id === t.id) && M.sameObs({ ...t, cle: where.cle }, x)) : [])]; };
   const setObs = (ph, label) => S.apply(obs().map((x) => ({ kind: "set-tick", cle: x.cle || where.cle, id: x.id, patch: ph ? { ph, nph: null } : { ph } })), label);
   const title = where.kind === "tick" ? `Photo de la coche · ${esc(M.liste.get(where.cle).nom)}` : "Meilleure photo (best of)";
   const lists = where.kind === "tick" ? obs().map((x) => M.liste.get(x.cle || where.cle).nom) : [];
   const help = where.kind === "tick" ? `Une seule photo pour cette observation : elle s'affiche dans ${lists.length > 1 ? "ses listes (" + esc(lists.join(", ")) + ")" : "cette liste"}. ${where.tick.d ? `Elle doit avoir été prise le jour de la coche (${fmtShort(where.tick.d)}) : sa date de prise de vue est vérifiée.` : `La coche n'a pas de date : elle prendra celle de la photo${M.liste.get(where.cle) && M.liste.get(where.cle).type === "annee" ? " (une photo de l'année de la year list)" : ""}, et son GPS si elle en a un.`}` : "Elle s'affiche en premier sur la page de l'espèce, jamais sur la carte. Choisis une de tes photos de l'espèce, ou ajoutes-en une nouvelle.";
   el.innerHTML = `<section class="panel phbox"><h3 class="minor">${title}</h3><p class="cap">${help}</p>
-    <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? "Photo de la coche" : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
-    <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}${where.kind === "tick" && !cur && !where.tick.nph && !M.photosFor(where.tick).length ? '<button type="button" class="btn ph-nope">Pas de photo</button>' : ""}</div>
+    <div class="phbox-cur">${cur ? phSlider([{ ...cur, label: where.kind === "tick" ? (folder ? "Photo de la coche · dossier Liste, prise ce jour-là" : "Photo de la coche") : "Meilleure photo" }], M.name(sid)) : '<p class="cap">Pas encore de photo.</p>'}</div>
+    <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" class="ph-file" hidden></label>${cur && !folder ? '<button type="button" class="btn ph-del">Retirer</button>' : ""}${where.kind === "tick" && !cur && !where.tick.nph && !M.photosFor(where.tick).length ? '<button type="button" class="btn ph-nope">Pas de photo</button>' : ""}</div>
     <div class="row ph-fl"><input class="field" type="url" placeholder="ou lien Flickr (page de la photo, ou lien direct de l’image)"><button type="button" class="btn">Vérifier</button></div>
     ${where.kind === "best" ? (() => { const mine = M.allPhotos(sid).filter((p) => !cur || (p.img || p.url) !== (cur.img || cur.url)); return mine.length ? `<p class="cap">Parmi tes photos de l'espèce :</p><div class="ph-pick">${mine.map((p, i) => `<button type="button" class="ph-pk" data-i="${i}" title="${esc(p.label)}"><img class="ph" data-ph="${esc(p.img || p.url)}" data-alt="" alt=""><small>${esc(p.label)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}</small></button>`).join("")}</div>` : ""; })() : ""}
     <div class="ph-new"></div><p class="msg"></p></section>`;
