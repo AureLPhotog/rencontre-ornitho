@@ -565,6 +565,8 @@ function taskView(t) {
   if (t.kind === "check") {
     done = done || Object.entries(t.watch || {}).some(([k, v]) => (tk[k] ?? null) !== v);
     body = `${esc(t.quoi)}<small>${esc(t.det || "")}${t.det ? " · " : ""}aujourd'hui : ${tickLine(tk)}</small>`; btns = act("ok", "C'est bon") + edit;
+  } else if (t.kind === "choose-date" && !tk) {
+    body = `Dates différentes : la coche n'existe plus<small>${esc(t.src || "cocheurs")} ${t.other ? fmtShort(t.other) : ""}</small>`; // removed tick: nothing to choose any more
   } else if (t.kind === "choose-date") {
     done = done || tk.d === t.other;
     body = `${tk.d ? `Appli <b>${fmtShort(tk.d)}</b> · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>` : `Pas de date dans l'appli · ${esc(t.src || "cocheurs")} <b>${fmtShort(t.other)}</b>`}<small>${t.det ? esc(t.det) + " · " : ""}${tickLine(tk)}</small>`;
