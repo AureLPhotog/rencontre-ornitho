@@ -323,3 +323,5 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .sres{margin:0 0 14px}.sres h3{margin:0 0 6px}
 .hres2{margin-top:8px}
 #sq{margin-bottom:8px}
+.phs-f .qmini{margin-top:8px;align-items:center}.qmini .qtag{font-family:var(--f-body);font-size:12px;font-weight:600;padding:2px 8px}
+.qmini .qwhat{font-size:11px;color:var(--muted);align-self:center;margin-right:2px}

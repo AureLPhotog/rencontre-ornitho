@@ -122,9 +122,10 @@ function hydrate(root) {
 new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtree: true });
 // several photos of one species (photo of the tick, first photo, best photo): arrows to go from one to the other
 // del: the species, to offer « Supprimer » on each photo
-export function phSlider(photos, name, { del } = {}) {
+// tag: for each photo, the label to show and change in one tap ({ cur, host }), or null
+export function phSlider(photos, name, { del, tag } = {}) {
   if (!photos.length) return "";
-  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.nv ? ' · <span class="miss">date non vérifiée</span>' : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small></figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.nv ? ' · <span class="miss">date non vérifiée</span>' : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small>${(() => { const t = tag && tag(p); return t ? qPick(t.cur, t.host, "Étiquette de cette photo") : ""; })()}</figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
 }
 export function wirePhotos(root) {
   $$(".phs:not([data-w])", root).forEach((box) => {
@@ -255,6 +256,26 @@ export function findAll(q) {
   return { k, when, species, ticks, photos };
 }
 // the rows: a species (photo, name, labels, its lists), a tick (list, date, place), a photo (picture, file, date)
+// the label of the photo shown, to change in one tap: the best-of photo's (species), else the lifer photo's
+// (the observation's ticks); host: what the buttons change
+const qPick = (cur, host, what = "") => `<span class="qpick qmini" data-qs="${esc(host)}">${what ? `<span class="qwhat">${esc(what)}</span>` : ""}${QUALITES.map((x) => `<button type="button" class="qtag${cur === x.v ? " on" : ""}" style="--c:${x.c}" data-qv="${esc(x.v)}" aria-pressed="${cur === x.v}" title="${esc(x.v)}">${x.court}</button>`).join("")}</span>`;
+const samePic2 = (a, b) => !!(a && b && ((a.img || a.url) === (b.img || b.url) || (M.picKey(a) && M.picKey(a) === M.picKey(b))));
+// a tap on a label: set it (or remove it if it was the one), for the species or the whole observation
+function wireQuickTags(root) {
+  root.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-qv]"), host = b && b.closest("[data-qs]"); if (!host) return;
+    ev.preventDefault(); ev.stopPropagation();
+    // the screen is redrawn after the change: the photo sliders stay on the photo you were looking at
+    const at = $$(".phs", view).map((x) => +x.dataset.i || 0), y = scrollY;
+    setTimeout(() => { $$(".phs", view).forEach((x, k) => { const i = at[k] || 0, fs = $$(".phs-f", x); if (!i || i >= fs.length) return; x.dataset.i = i; fs.forEach((f, j) => { f.hidden = j !== i; }); const n = $(".phs-n", x); if (n) n.textContent = `${i + 1} / ${fs.length}`; hydrate(x); }); scrollTo(0, y); }, 0);
+    const [kind, ref] = host.dataset.qs.split("|"), val = b.dataset.qv;
+    if (kind === "best") { const e = M.esp.get(ref); const v = e.q === val ? null : val; S.apply({ kind: "set-espece", id: ref, patch: { q: v } }, `Étiquette best of : ${e.n} → ${v || "aucune"}`); toast(v ? `Étiquette : ${qualite(v).court}.` : "Étiquette retirée."); return; }
+    const [c, i] = ref.split("/"), t = M.tickOf(c, i); if (!t) return;
+    const obs = [t, ...(t.d ? M.ticks.filter((x) => x !== t && M.sameObs(t, x)) : [])], v = t.q === val ? null : val;
+    S.apply(obs.filter((x) => (x.q || null) !== v).map((x) => ({ kind: "set-tick", cle: x.cle, id: x.id, patch: { q: v } })), `Étiquette photo : ${M.name(t.e)} (${obs.map((x) => L(x.cle).nom).join(", ")}) → ${v || "aucune"}`);
+    toast(v ? `Étiquette : ${qualite(v).court}.` : "Étiquette retirée.");
+  }, true);
+}
 const spThumb = (sid) => { const p = M.allPhotos(sid)[0]; return `<span class="sp-th">${p ? phImg(p.img || p.url, M.name(sid)) : ""}</span>`; };
 function spRow(e, from) {
   const m = M.bySp.get(e.id) || new Map(), lif = M.tick(e.id, LIFERS);
@@ -591,6 +612,15 @@ function screenJournal() {
   draw();
 }
 
+// the label of one photo of a species: the best-of photo's is the species' (best of); a photo that is the photo of
+// a tick is that observation's (lifer first); a photo tied to no tick has none
+const photoTag = (sid) => {
+  const best = M.bestPhoto(sid), ticks = [...(M.bySp.get(sid) || new Map()).values()].flat().sort((a, b) => (a.cle === LIFERS ? -1 : 0) - (b.cle === LIFERS ? -1 : 0));
+  return (p) => {
+    if (samePic2(p, best)) return { cur: M.bestQ(sid), host: "best|" + sid };
+    const t = ticks.find((x) => samePic2(M.photosFor(x)[0], p)); return t ? { cur: t.q || null, host: "obs|" + t.cle + "/" + t.id } : null;
+  };
+};
 // ---------- one species ----------
 function screenSpecies(sid, q) {
   const e = M.esp.get(sid); if (!e) return go("#/");
@@ -615,7 +645,7 @@ function screenSpecies(sid, q) {
   });
   view.innerHTML = `<div class="screen">
     ${navBar}<header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${esc(e.n)}</h1><p class="cap">${[e.sc ? `<i>${esc(e.sc)}</i>` : "", e.fa ? esc(e.fa) : ""].filter(Boolean).join(" · ")}${e.lr ? ` · Liste rouge mondiale <span class="lr lr-${esc(String(e.lr).slice(0, 2).toLowerCase())}">${esc(e.lr)}</span>` : ""}</p>${st ? `<p class="cap">Statut en France : ${st}</p>` : ""}${e.compte ? `<p class="tkwarn">⚠ ${esc(e.compte)}</p>` : ""}<div class="qrow"><span class="cap">Étiquette de la photo best of</span><div class="qpick" role="group" aria-label="Étiquette de la photo best of">${QUALITES.map((x) => `<button type="button" class="qtag${e.q === x.v ? " on" : ""}" style="--c:${x.c}" data-q="${esc(x.v)}" aria-pressed="${e.q === x.v}">${x.court}</button>`).join("")}</div>${e.q && !qualite(e.q) ? `<small class="cap">(${esc(e.q)})</small>` : ""}${!e.q && M.liferQ(sid) ? `<span class="cap">Pas d'étiquette best of : l'espèce prend celle de la photo lifer ${qTag(M.liferQ(sid))}</span>` : ""}</div></header>
-    ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n, { del: sid })}</section>` : ""; })()}
+    ${(() => { const ph = M.allPhotos(sid); return ph.length ? `<section class="sp-photos">${phSlider(ph, e.n, { del: sid, tag: photoTag(sid) })}</section>` : ""; })()}
     ${blocks ? `<ul class="plain">${blocks}</ul>` : `<p class="empty">Pas encore cochée.</p>`}
     ${pts.length ? `<div><div class="minimap" id="mm"></div><p class="maplegend"><span style="--c:#D7263D"></span>lifer photo <span style="--c:#2E9B4F"></span>photo France <span style="--c:#D7263D;--s:#2E9B4F"></span>les deux au même endroit <span style="--c:#0A7895"></span>autres listes</p></div>` : ""}
     <a class="btn btn-primary" href="#/ajout?e=${encodeURIComponent(sid)}">Ajouter une coche pour cette espèce</a>
@@ -630,7 +660,7 @@ function screenSpecies(sid, q) {
   </div>`;
   if (pts.length) { const mm = mapView($("#mm"), pts); if (mm) mm.on("popupopen", (ev) => { const el = ev.popup.getElement(); wirePhotos(el); $$("img[data-ph]", el).forEach((im) => im.addEventListener("load", () => ev.popup.update(), { once: true })); }); }
   photoBox($("#sp-best"), { kind: "best", sid }, phSlider);
-  wirePhotos(view);
+  wirePhotos(view); wireQuickTags(view.firstElementChild);
   // moving between species replaces the page in the history, so « Retour » goes back to the list
   const move = (id) => { if (id) { location.replace(to(id)); scrollTo(0, 0); } };
   $$("[data-nav]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); move(a.dataset.nav === "prev" ? prev : next); }));
