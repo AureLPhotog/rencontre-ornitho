@@ -16,7 +16,7 @@ const UI = Object.assign({ scope: "fr", year: new Date().getFullYear() }, store(
 export const saveUI = (patch) => { Object.assign(UI, patch); store("ro.ui", UI); };
 export { UI };
 
-const view = $("#view");
+const view = $("#view"); window.__roBooted = true;
 S.on(() => {
   M = buildModel(S.db);
   renderStatus();
@@ -49,11 +49,20 @@ function route(soft) {
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
+// a screen that fails says so (instead of a blank page), with what to send to fix it
+function showError(err, where) {
+  console.error(err);
+  const st = String((err && err.stack) || "").split("\n").slice(0, 4).join("\n");
+  view.innerHTML = `<div class="screen"><h2>Oups, cet écran a planté</h2><p>Écran : <code>${esc(where || location.hash)}</code></p><pre class="errbox">${esc(String((err && err.message) || err))}\n${esc(st)}</pre><p class="cap">Fais une capture de cet écran pour Claude.</p><div class="row"><button class="btn btn-primary" type="button" id="err-reload">Recharger l'appli</button><a class="btn" href="#/">Retour aux listes</a></div></div>`;
+  $("#err-reload").addEventListener("click", () => location.reload());
+}
+window.addEventListener("error", (e) => { if (!view.firstElementChild) showError(e.error || e.message, location.hash); });
+window.addEventListener("unhandledrejection", (e) => { if (!view.firstElementChild) showError(e.reason, location.hash); });
 let onKey = null; // a screen's keyboard shortcuts (species page: arrows)
 window.addEventListener("keydown", (e) => { if (onKey) onKey(e); });
 function draw(h) {
   onKey = null;
-  for (const [re, fn] of ROUTES) { const m = h.match(re); if (m) { current = h; if (fn !== screenSettings && !S.hasData) { loading(); return; } fn(...m.slice(1)); setNav(h); return; } }
+  for (const [re, fn] of ROUTES) { const m = h.match(re); if (m) { current = h; if (fn !== screenSettings && !S.hasData) { loading(); return; } try { fn(...m.slice(1)); } catch (err) { showError(err, h); } setNav(h); return; } }
   location.replace("#/");
 }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
