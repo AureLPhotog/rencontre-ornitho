@@ -286,6 +286,14 @@ export function buildModel(db) {
         else if (zt.d && f.d < zt.d && zt.vf !== zt.d) out.zoneFirst.push({ zone: z.cle, e, first: f, zt: { ...zt, cle: z.cle } });
       }
     }
+    // a sighting abroad in a country that has its list (Suisse, Espagne, Guyane…) but the species is not in that list
+    out.paysMissing = [];
+    const paysL = M.listes.filter((l) => l.type === "pays"), seenP = new Set();
+    if (paysL.length) for (const t of M.ticks.slice().sort(byDate)) {
+      if (isFrance(t.p) || t.cle === VU || (M.liste.get(t.cle) || {}).type === "pays") continue;
+      const pl = paysL.find((l) => norm(l.nom) === norm(t.p)); if (!pl || M.inList(t.e, pl.cle)) continue;
+      const k = t.e + "|" + pl.cle; if (seenP.has(k)) continue; seenP.add(k); out.paysMissing.push({ t, pays: pl.cle });
+    }
     // year-list ticks dated in another year
     out.yearWrong = M.ticks.filter((t) => t.d && !M.sameYearOk(t, t.d));
     out.badNum = M.listes.filter((l) => l.numerotee).map((l) => ({ cle: l.cle, moves: M.renumber(l.cle) })).filter((x) => x.moves.length);

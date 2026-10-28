@@ -907,7 +907,7 @@ function screenTodo() {
     outside: all.outside.filter((x) => on(x.t.cle)), photoEarlier: all.photoEarlier.filter((x) => anyOn(x.ticks)), srcDate: all.srcDate.filter((x) => anyOn(x.ticks)),
     badNum: all.badNum.filter((x) => on(x.cle)), placeMismatch: all.placeMismatch.filter((x) => anyOn([x.src, ...x.others])),
     yearWrong: all.yearWrong.filter((t) => on(t.cle)), yearMissing: all.yearMissing.filter((x) => on(x.t.cle) || on("yl" + x.year)), nested: all.nested.filter((x) => on(x.liste) || on(x.parent)),
-    undated: all.undated.filter((t) => on(t.cle)), zoneFirst: all.zoneFirst.filter((x) => on(x.zone) || on(x.first.cle)) };
+    undated: all.undated.filter((t) => on(t.cle)), paysMissing: all.paysMissing.filter((x) => on(x.t.cle) || on(x.pays)), zoneFirst: all.zoneFirst.filter((x) => on(x.zone) || on(x.first.cle)) };
   // ticks without GPS point or without place name, one row per observation (species and day)
   const ng = new Map();
   for (const t of M.ticks) {
@@ -962,6 +962,8 @@ function screenTodo() {
     ${c.badNum.map((x) => `<section data-n="${x.moves.length}"><h3 class="minor">${esc(L(x.cle).nom)} : numéros pas dans l'ordre des dates</h3><p class="cap">${x.moves.length} ${plural(x.moves.length, "coche")} à renuméroter. Les coches mal placées sont remises à leur date ; les autres, avec ou sans date, gardent leur ordre.</p><div class="row"><button class="btn btn-primary" data-renum="${x.cle}">Renuméroter par date</button></div><ul class="todo">${x.moves.slice(0, 12).map((m) => `<li><span>${nameLink(m.t.e)} · ${esc(fmtShort(m.t.d))}<small>n°${m.t.n} → n°${m.to}</small></span></li>`).join("")}${x.moves.length > 12 ? `<li><span class="cap">… et ${x.moves.length - 12} autres</span></li>` : ""}</ul></section>`).join("")}
     ${c.placeMismatch.length ? `<section data-n="${c.placeMismatch.length}"><h3 class="minor">Même observation, lieux différents</h3><p class="cap">Même espèce, même jour, mais pas le même lieu selon la liste. « Aligner » reprend partout le lieu le plus précis.</p><div class="row"><button class="btn btn-primary" id="align-all">Tout aligner (${c.placeMismatch.length})</button></div><ul class="todo">
       ${c.placeMismatch.slice(0, 60).map((x, i) => `<li><span>${nameLink(x.src.e)} · ${esc(fmtShort(x.src.d))}<small>${chip(x.src.cle)} ${esc(x.src.l || (x.src.lat != null ? x.src.lat + ", " + x.src.lon : ""))} · ailleurs : ${x.others.map((t) => `${chip(t.cle)} ${esc(t.l || (t.lat != null ? "coordonnées différentes" : "sans lieu"))}`).join(" ")}</small></span><button class="btn" data-align="${i}">Aligner</button></li>`).join("")}</ul></section>` : ""}
+    ${c.paysMissing.length ? `<section data-n="${c.paysMissing.length}"><h3 class="minor">Pas dans la liste du pays · ${c.paysMissing.length}</h3><p class="cap">Une coche a été faite dans un pays qui a sa liste, mais l'espèce n'est pas dans cette liste. « Ajouter » la met dans la liste du pays avec la date, le lieu et la photo de cette coche.</p><ul class="todo">
+      ${c.paysMissing.map((x, i) => `<li><span>${nameLink(x.t.e)} ${chip(x.t.cle)}<small>${esc(x.t.p)} · ${x.t.d ? esc(fmtShort(x.t.d)) : "sans date"}${x.t.l ? " · " + esc(x.t.l) : ""}</small></span><button class="btn" data-addpays="${i}">Ajouter à ${esc(L(x.pays).nom)}</button></li>`).join("")}</ul></section>` : ""}
     ${c.yearMissing.length || c.nested.length || c.yearWrong.length ? `<section data-n="${c.yearMissing.length + c.nested.length + c.yearWrong.length}"><h3 class="minor">Incohérences trouvées dans la base</h3><ul class="todo">
       ${c.yearWrong.map((t) => `<li><span>${nameLink(t.e)} est dans ${esc(L(t.cle).nom)} mais datée du ${esc(fmtShort(t.d))}.</span> <a class="btn" href="#/coche/${t.cle}/${t.id}/modifier">Corriger</a></li>`).join("")}
       ${c.yearMissing.map((x) => `<li><span>${nameLink(x.t.e)} a une coche datée de ${x.year} (${esc(L(x.t.cle).nom)}, ${esc(fmtShort(x.t.d))}) mais n'est pas dans la year list ${x.year}.</span> <button class="btn" data-addyl="${x.t.cle}/${x.t.id}">Ajouter à ${x.year}</button></li>`).join("")}
@@ -997,7 +999,7 @@ function screenTodo() {
   // one category at a time: the chips are tabs (the ones with nothing left are hidden), the open one is remembered
   const info = secs.map((sec) => {
     const h = sec.querySelector("h3"); const title = (h ? h.firstChild.textContent : "").replace(/\s*·\s*\d+\s*$/, "").trim();
-    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu").replace(/^Première donnée de la zone$/, "Première de la zone");
+    const short = title.replace(/ : numéros pas dans l'ordre des dates$/, " : numéros").replace(/^Pas d'accord avec /, "").replace(/^Même observation, lieux différents$/, "Lieux différents").replace(/^Coches hors de leur liste$/, "Hors de leur liste").replace(/^Dates différentes appli \/ cocheurs$/, "Dates cocheurs").replace(/^Incohérences trouvées dans la base$/, "Incohérences").replace(/^Une photo plus ancienne que la coche$/, "Photo plus ancienne").replace(/^Sans GPS ou sans lieu$/, "Sans GPS / lieu").replace(/^Première donnée de la zone$/, "Première de la zone").replace(/^Pas dans la liste du pays$/, "Liste du pays");
     return { sec, title, short, n: +sec.dataset.n || 0 };
   });
   const live = info.filter((x) => x.n), done = info.length - live.length;
@@ -1045,6 +1047,12 @@ function screenTodo() {
   const ub = $("#td-undo"); if (ub) ub.addEventListener("click", () => { const u = S.undoLast(); if (u) toast(`Annulé : ${u.label}`); });
   $$("[data-renum]").forEach((b) => b.addEventListener("click", () => { const cle = b.dataset.renum, mv = M.renumber(cle); S.apply(mv.map((m) => ({ kind: "set-tick", cle, id: m.t.id, patch: { n: m.to } })), `${L(cle).nom} : ${mv.length} coches renumérotées par date`); toast("Numéros remis dans l'ordre des dates."); }));
   const aa = $("#align-all"); if (aa) aa.addEventListener("click", () => { S.apply(c.placeMismatch.flatMap(alignOps), `Lieux alignés : ${c.placeMismatch.length} observations`); toast("Lieux alignés."); });
+  $$("[data-addpays]").forEach((b) => b.addEventListener("click", () => {
+    const x = c.paysMissing[+b.dataset.addpays], t = x.t, pl = M.liste.get(x.pays); if (!x || !pl) return;
+    const tick = { id: `${pl.cle}-${Date.now().toString(36)}`, e: t.e }; ["d", "h", "sh", "l", "lat", "lon", "p", "t", "sd", "sl"].forEach((k) => { if (t[k] != null && t[k] !== "") tick[k] = t[k]; });
+    if (pl.numerotee) tick.n = M.nextNum(pl.cle);
+    S.apply({ kind: "add-tick", cle: pl.cle, tick }, `Ajout : ${M.name(t.e)} (${pl.nom}, ${t.d ? fmtShort(t.d) : "sans date"})`); toast(`${M.name(t.e)} ajoutée à ${pl.nom}.`);
+  }));
   $$("[data-addyl]").forEach((b) => b.addEventListener("click", () => {
     const [cle, id] = b.dataset.addyl.split("/"), t = (M.db.coches[cle] || []).find((x) => x.id === id); if (!t) return;
     const y = yearOf(t.d); const tick = { id: `yl${y}-${Date.now().toString(36)}`, e: t.e, d: t.d }; ["l", "p", "lat", "lon", "sd", "sl"].forEach((k) => { if (t[k] != null) tick[k] = t[k]; });

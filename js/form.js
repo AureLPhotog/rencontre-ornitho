@@ -327,8 +327,15 @@ export function renderEdit(view, cle, id) {
       if (src) ops[0].patch = { ...ops[0].patch, l: src.l || null, lat: src.lat ?? null, lon: src.lon ?? null, p: src.p || null, sl: src.sl || null };
     }
     if (st.l && st.lat != null && ("l" in patch || "lat" in patch)) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon } });
-    S.apply(ops, `Modification : ${M.name(t0.e)}${"e" in patch ? " → " + M.name(patch.e) : ""} (${l.nom})`);
-    toast("Modifié."); history.back();
+    // a sighting abroad in a country that has its list (Suisse, Espagne, Guyane…): the species goes in that list too
+    const fin = { ...t0, ...ops[0].patch }, pl = !isFrance(fin.p) && cle !== "vu" ? M.listes.find((x) => x.type === "pays" && norm(x.nom) === norm(fin.p)) : null;
+    if (pl && pl.cle !== cle && !M.inList(fin.e, pl.cle)) {
+      const tick = { id: `${pl.cle}-${Date.now().toString(36)}`, e: fin.e }; ["d", "h", "sh", "l", "lat", "lon", "p", "t", "sd", "sl"].forEach((k) => { if (fin[k] != null && fin[k] !== "") tick[k] = fin[k]; });
+      if (pl.numerotee) tick.n = M.nextNum(pl.cle);
+      ops.push({ kind: "add-tick", cle: pl.cle, tick });
+    }
+    S.apply(ops, `Modification : ${M.name(t0.e)}${"e" in patch ? " → " + M.name(patch.e) : ""} (${l.nom})${pl && ops.some((o) => o.kind === "add-tick") ? ", ajoutée à " + pl.nom : ""}`);
+    toast(pl && ops.some((o) => o.kind === "add-tick") ? `Modifié, et ajoutée à ${pl.nom}.` : "Modifié."); history.back();
   });
   const del = $("#f-del");
   del.addEventListener("click", () => {
