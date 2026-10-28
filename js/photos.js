@@ -36,7 +36,7 @@ function exifDate(view, start, len) {
   return out;
 }
 export function readMeta(buf) {
-  const v = new DataView(buf), out = { when: null, keywords: [], lat: null, lon: null };
+  const v = new DataView(buf), out = { when: null, keywords: [], lat: null, lon: null, title: null };
   if (v.getUint16(0) !== 0xffd8) return out;
   let i = 2;
   while (i + 4 < v.byteLength) {
@@ -50,17 +50,38 @@ export function readMeta(buf) {
         const xmp = new TextDecoder().decode(new Uint8Array(buf, i + 4, len - 2));
         const subj = xmp.match(/<dc:subject>([\s\S]*?)<\/dc:subject>/);
         if (subj) out.keywords = [...subj[1].matchAll(/<rdf:li[^>]*>([^<]*)<\/rdf:li>/g)].map((x) => x[1].trim()).filter(Boolean);
+        const ti = xmp.match(/<dc:title>[\s\S]*?<rdf:li[^>]*>([^<]*)<\/rdf:li>/); if (ti && !out.title) out.title = ti[1].replace(/&#39;/g, "'").replace(/&amp;/g, "&").trim();
         const d = xmp.match(/(?:exif:DateTimeOriginal|photoshop:DateCreated)(?:="|>)(\d{4}-\d\d-\d\dT\d\d:\d\d)/);
         if (!out.when && d) out.when = d[1].replace(/-/g, ":").replace("T", " ");
       }
     }
+    // IPTC (Photoshop APP13): keywords written by FastStone, ExifTool, Lightroom… (2:25), title (2:05), date (2:55 + 2:60)
+    if (m === 0xed) { try { const ip = iptc(new Uint8Array(buf, i + 4, len - 2)); if (ip.keywords.length && !out.keywords.length) out.keywords = ip.keywords; if (ip.title && !out.title) out.title = ip.title; if (ip.when && !out.when) out.when = ip.when; } catch (_) {} }
     i += 2 + len;
   }
   // "2020:05:11 09:50:10" -> date + time
   const m = out.when && out.when.match(/^(\d{4})[:-](\d\d)[:-](\d\d)[ T](\d\d):(\d\d)/);
-  return { d: m ? `${m[1]}-${m[2]}-${m[3]}` : null, h: m ? `${m[4]}:${m[5]}` : null, keywords: out.keywords, lat: out.lat, lon: out.lon };
+  return { d: m ? `${m[1]}-${m[2]}-${m[3]}` : null, h: m ? `${m[4]}:${m[5]}` : null, keywords: out.keywords, lat: out.lat, lon: out.lon, title: out.title };
 }
 
+function iptc(b) {
+  const out = { keywords: [], title: null, when: null }; let i = 0, utf8 = false; const recs = [];
+  const head = "Photoshop 3.0\0"; for (let k = 0; k < head.length; k++) if (b[k] !== head.charCodeAt(k)) return out;
+  i = head.length;
+  while (i + 12 < b.length && b[i] === 0x38 && b[i + 1] === 0x42 && b[i + 2] === 0x49 && b[i + 3] === 0x4d) { // "8BIM"
+    const id = (b[i + 4] << 8) | b[i + 5], nl = b[i + 6]; let j = i + 7 + nl; if ((nl + 1) % 2) j++;
+    const size = (b[j] << 24) | (b[j + 1] << 16) | (b[j + 2] << 8) | b[j + 3], data = b.subarray(j + 4, j + 4 + size);
+    if (id === 0x0404) { let k = 0; while (k + 5 <= data.length && data[k] === 0x1c) { const ln = (data[k + 3] << 8) | data[k + 4]; recs.push([data[k + 1], data[k + 2], data.subarray(k + 5, k + 5 + ln)]); k += 5 + ln; } }
+    i = j + 4 + size + (size % 2);
+  }
+  recs.forEach(([r, d, val]) => { if (r === 1 && d === 90 && val[0] === 0x1b && val[1] === 0x25 && val[2] === 0x47) utf8 = true; });
+  const txt = (val) => new TextDecoder(utf8 ? "utf-8" : "windows-1252").decode(val).trim();
+  let dd = null, tt = null;
+  recs.forEach(([r, d, val]) => { if (r !== 2) return; if (d === 25) out.keywords.push(txt(val)); if (d === 5) out.title = txt(val); if (d === 55) dd = txt(val); if (d === 60) tt = txt(val); });
+  if (dd && /^\d{8}$/.test(dd)) out.when = `${dd.slice(0, 4)}:${dd.slice(4, 6)}:${dd.slice(6, 8)} ${tt && /^\d{4}/.test(tt) ? tt.slice(0, 2) + ":" + tt.slice(2, 4) : "00:00"}`;
+  out.keywords = out.keywords.filter(Boolean);
+  return out;
+}
 // a copy small enough for the repository (and for a phone)
 export async function shrink(file, max = 1600) {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });

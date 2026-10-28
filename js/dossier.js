@@ -7,10 +7,12 @@ import { S, M, go } from "./app.js";
 import { readMeta, shrink, speciesOfKeyword } from "./photos.js";
 import { whereIs, outsideOf, nameAt } from "./geo.js";
 
-// the species of a photo: its keywords first, then its folders (deepest first), then the first words of its name
+// the species of a photo: its keywords first (XMP or IPTC), then its title, then its folders (deepest first), then the first words of its name
 function speciesOf(file, meta) {
   const ks = [...new Set((meta.keywords || []).flatMap((k) => k.split(/[|>]/)).map((k) => speciesOfKeyword(k)).filter(Boolean))];
   if (ks.length) return ks;
+  // the title (« 380 Goéland d'Audouin » : the number in front is left out)
+  if (meta.title) { const s = speciesOfKeyword(meta.title.replace(/^\s*\d+[\s._-]*/, "")); if (s) return [s]; }
   const dirs = String(file.webkitRelativePath || "").split("/").slice(0, -1).reverse();
   for (const d of dirs) { const s = speciesOfKeyword(d.replace(/^\d+[\s._-]+/, "")); if (s) return [s]; }
   const w = file.name.replace(/\.[^.]+$/, "").split(/[\s_-]+/).filter(Boolean);
