@@ -22,7 +22,7 @@ export function fmtDay(iso, withYear = true) {
   return `${d === 1 ? "1er" : d} ${MOIS[m - 1]}${withYear ? " " + y : ""}`;
 }
 // where a tick's date (sd) or place (sl) comes from
-export const SOURCES = { sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées", photo: "date de la photo (EXIF)", tel: "GPS d'une photo téléphone (approximatif)", obn: "lieu-dit de l'appli Oiseaux d'Ouessant" };
+export const SOURCES = { trajets: "Vos trajets (Google Maps)", sheet: "Google Sheet", ff: "Faune-France", ebird: "eBird", cocheurs: "cocheurs", appli: "saisie dans l'appli", fixe: "lieu fixe de la liste", claude: "corrigé par Claude", geo: "commune d'après les coordonnées", ign: "lieu-dit IGN d'après les coordonnées", photo: "date de la photo (EXIF)", tel: "GPS d'une photo téléphone (approximatif)", obn: "lieu-dit de l'appli Oiseaux d'Ouessant" };
 export const srcName = (k) => SOURCES[k] || (k ? k : "source inconnue");
 // photo label (étiquette), one per photo: the photo of a tick (tick.q, shared by the same observation in all its lists)
 // and the best-of photo of a species (espece.q); best first
