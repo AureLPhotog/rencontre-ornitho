@@ -8,7 +8,7 @@ import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { whereIs, outsideOf, nameAt } from "./geo.js";
+import { whereIs, outsideOf, nameAt, deptFromPlace, communeFromPlace, listCovers, onOuessant } from "./geo.js";
 import { readFolder, showFolder } from "./dossier.js";
 
 export const S = new Store();
@@ -443,16 +443,43 @@ function placeGroups() {
   for (const t of M.ticks) { if (!t.l && t.lat == null) continue; const k = (t.l || "") + "|" + ptKey(t); if (!g.has(k)) g.set(k, { l: t.l || "", p: ptKey(t), lat: t.lat, lon: t.lon, ts: [] }); g.get(k).ts.push(t); }
   return [...g.values()];
 }
+// the zone of a place, as your lists cut the world: the zone lists right under Photo France (AURA, Ouessant, Corse…),
+// then the rest of France, then the country lists (Guyane, Espagne…), then the other countries
+function placeZone(x) {
+  const fr = x.ts.filter((t) => isFrance(t.p)).length >= x.ts.length / 2;
+  if (!fr) { const c = (x.ts.find((t) => !isFrance(t.p)) || {}).p || "Étranger"; const pl = M.listes.find((l) => l.type === "pays" && norm(l.nom) === norm(c)); return pl ? pl.cle : "pays:" + c; }
+  const tops = M.listes.filter((l) => l.dans === PHOTO_FR && (l.deps || l.communes || l.lieux));
+  const dep = deptFromPlace(x.l), commune = communeFromPlace(x.l);
+  for (const z of tops) {
+    const inside = new Set([z.cle, ...M.descendants(z.cle)]);
+    if (x.ts.some((t) => inside.has(t.cle))) return z.cle;
+    if ((dep || commune) && listCovers(z, { dep, commune })) return z.cle;
+    if (z.cle === "ouessant" && x.lat != null && onOuessant(x.lat, x.lon)) return z.cle;
+  }
+  return "france";
+}
 function screenPlaces() {
-  const all = placeGroups(), byName = new Map(); all.forEach((x) => { if (!byName.has(x.l)) byName.set(x.l, []); byName.get(x.l).push(x); });
-  const names = [...byName].sort((a, b) => b[1].reduce((s, x) => s + x.ts.length, 0) - a[1].reduce((s, x) => s + x.ts.length, 0));
-  view.innerHTML = `<div class="screen keep-scroll"><header class="phead"><a class="back" href="#/plus">← Plus</a><h1>Lieux</h1><p class="cap">${names.length} noms de lieux, ${all.length} points. Un nom avec plusieurs points est signalé : ce sont peut-être des endroits différents, ou un point mal placé.</p></header>
-    <input class="field" type="search" id="lq" placeholder="Chercher un lieu" value="${esc(UI.lq || "")}"><ul class="ticks bulk" id="lrows"></ul></div>`;
+  const all = placeGroups(), by = UI.lby === "nb" ? "nb" : "zone";
+  const total = (xs) => xs.reduce((s, x) => s + x.ts.length, 0);
+  const zoneName = (z) => z === "france" ? "France, ailleurs" : z.startsWith("pays:") ? z.slice(5) : L(z).nom;
+  const zoneOrder = (z) => { const i = M.listes.findIndex((l) => l.cle === z); return z === "france" ? 500 : z.startsWith("pays:") ? 2000 : (M.liste.get(z) || {}).type === "pays" ? 1000 + i : i; };
+  view.innerHTML = `<div class="screen keep-scroll"><header class="phead"><a class="back" href="#/plus">← Plus</a><h1>Lieux</h1><p class="cap">${new Set(all.map((x) => x.l)).size} noms de lieux, ${all.length} points. Un nom avec plusieurs points est signalé : ce sont peut-être des endroits différents, ou un point mal placé.</p></header>
+    <input class="field" type="search" id="lq" placeholder="Chercher un lieu" value="${esc(UI.lq || "")}">
+    <div class="seg" role="group" aria-label="Classer"><button type="button" data-lby="zone" aria-pressed="${by === "zone"}">Par zone</button><button type="button" data-lby="nb" aria-pressed="${by === "nb"}">Par nombre de coches</button></div>
+    <div id="lrows"></div></div>`;
+  const nameRows = (xs) => { const byName = new Map(); xs.forEach((x) => { if (!byName.has(x.l)) byName.set(x.l, []); byName.get(x.l).push(x); });
+    return [...byName].sort((a, b) => total(b[1]) - total(a[1])).map(([n, ys]) => `<li><b>${n ? esc(n) : "<em>sans nom</em>"}</b>${ys.length > 1 ? ` <span class="miss">${ys.length} points</span>` : ""}${ys.map((x) => `<small><a href="#/lieu?n=${encodeURIComponent(x.l)}&p=${encodeURIComponent(x.p)}">${x.p ? esc(x.p.replace(",", ", ")) : "sans coordonnées"}</a> · ${x.ts.length} ${plural(x.ts.length, "coche")}</small>`).join("")}</li>`).join(""); };
   const draw = () => {
     const k = norm($("#lq").value); saveUI({ lq: $("#lq").value });
-    $("#lrows").innerHTML = names.filter(([n]) => !k || norm(n).includes(k)).slice(0, 300).map(([n, xs]) => `<li><b>${n ? esc(n) : "<em>sans nom</em>"}</b>${xs.length > 1 ? ` <span class="miss">${xs.length} points</span>` : ""}${xs.map((x) => `<small><a href="#/lieu?n=${encodeURIComponent(x.l)}&p=${encodeURIComponent(x.p)}">${x.p ? esc(x.p.replace(",", ", ")) : "sans coordonnées"}</a> · ${x.ts.length} ${plural(x.ts.length, "coche")}</small>`).join("")}</li>`).join("") || '<li class="cap">Aucun lieu.</li>';
+    const xs = all.filter((x) => !k || norm(x.l).includes(k));
+    if (by === "nb") { $("#lrows").innerHTML = `<ul class="ticks bulk">${nameRows(xs) || '<li class="cap">Aucun lieu.</li>'}</ul>`; return; }
+    const g = new Map(); xs.forEach((x) => { const z = x.zone || (x.zone = placeZone(x)); if (!g.has(z)) g.set(z, []); g.get(z).push(x); });
+    $("#lrows").innerHTML = [...g].sort((a, b) => zoneOrder(a[0]) - zoneOrder(b[0]) || byFr(zoneName(a[0]), zoneName(b[0]))).map(([z, ys]) => `<details class="sres zone" ${k || g.size === 1 || UI.lopen === z ? "open" : ""} data-z="${esc(z)}"><summary><span class="chip-s" ${z === "france" || z.startsWith("pays:") ? "" : cstyle(z)}>${esc(zoneName(z))}</span> ${(() => { const n = new Set(ys.map((x) => x.l)).size, c = total(ys); return `${n} ${plural(n, "lieu", "lieux")} · ${c} ${plural(c, "coche")}`; })()}</summary><ul class="ticks bulk">${nameRows(ys)}</ul></details>`).join("") || '<p class="cap">Aucun lieu.</p>';
+    $$("details.zone", view).forEach((d) => d.addEventListener("toggle", () => { if (d.open) saveUI({ lopen: d.dataset.z }); }));
   };
-  $("#lq").addEventListener("input", draw); draw();
+  $("#lq").addEventListener("input", draw);
+  $$("[data-lby]").forEach((b) => b.addEventListener("click", () => { saveUI({ lby: b.dataset.lby }); screenPlaces(); }));
+  draw();
 }
 function screenPlace(q) {
   const P = new URLSearchParams(q || ""), n = P.get("n") || "", pk = P.get("p") || "";
