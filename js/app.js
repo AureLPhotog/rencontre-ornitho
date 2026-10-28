@@ -58,7 +58,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.e
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
   [/^#\/journal$/, screenJournal], [/^#\/especes$/, screenAllSpecies], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
-  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/liste\/([\w-]+)\/plusieurs$/, screenBulk], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
+  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/liste\/([\w-]+)\/plusieurs$/, screenBulk], [/^#\/lieux$/, screenPlaces], [/^#\/lieu\?(.*)$/, screenPlace], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
 let current = "";
@@ -66,7 +66,7 @@ export function go(hash) { if (location.hash === hash) route(); else location.ha
 function route(soft) {
   const h = location.hash || "#/";
   if (!S.ready && !/^#\/reglages/.test(h)) { location.replace("#/reglages"); return; }
-  if (soft && (/^#\/(ajout|coche|listes|import|carte)/.test(h) || /\/plusieurs$/.test(h))) return; // never redraw a form while it is open
+  if (soft && (/^#\/(ajout|coche|listes|import|carte)/.test(h) || /\/plusieurs$/.test(h) || /^#\/lieu\?/.test(h))) return; // never redraw a form while it is open
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
@@ -435,6 +435,57 @@ function screenBulk(cle) {
   draw(); count();
 }
 
+// ---------- places: one name at one point, shared by many ticks ----------
+const ptKey = (t) => (t.lat != null ? `${(+t.lat).toFixed(5)},${(+t.lon).toFixed(5)}` : "");
+const placeHref = (t) => `#/lieu?n=${encodeURIComponent(t.l || "")}&p=${encodeURIComponent(ptKey(t))}`;
+function placeGroups() {
+  const g = new Map();
+  for (const t of M.ticks) { if (!t.l && t.lat == null) continue; const k = (t.l || "") + "|" + ptKey(t); if (!g.has(k)) g.set(k, { l: t.l || "", p: ptKey(t), lat: t.lat, lon: t.lon, ts: [] }); g.get(k).ts.push(t); }
+  return [...g.values()];
+}
+function screenPlaces() {
+  const all = placeGroups(), byName = new Map(); all.forEach((x) => { if (!byName.has(x.l)) byName.set(x.l, []); byName.get(x.l).push(x); });
+  const names = [...byName].sort((a, b) => b[1].reduce((s, x) => s + x.ts.length, 0) - a[1].reduce((s, x) => s + x.ts.length, 0));
+  view.innerHTML = `<div class="screen keep-scroll"><header class="phead"><a class="back" href="#/plus">← Plus</a><h1>Lieux</h1><p class="cap">${names.length} noms de lieux, ${all.length} points. Un nom avec plusieurs points est signalé : ce sont peut-être des endroits différents, ou un point mal placé.</p></header>
+    <input class="field" type="search" id="lq" placeholder="Chercher un lieu" value="${esc(UI.lq || "")}"><ul class="ticks bulk" id="lrows"></ul></div>`;
+  const draw = () => {
+    const k = norm($("#lq").value); saveUI({ lq: $("#lq").value });
+    $("#lrows").innerHTML = names.filter(([n]) => !k || norm(n).includes(k)).slice(0, 300).map(([n, xs]) => `<li><b>${n ? esc(n) : "<em>sans nom</em>"}</b>${xs.length > 1 ? ` <span class="miss">${xs.length} points</span>` : ""}${xs.map((x) => `<small><a href="#/lieu?n=${encodeURIComponent(x.l)}&p=${encodeURIComponent(x.p)}">${x.p ? esc(x.p.replace(",", ", ")) : "sans coordonnées"}</a> · ${x.ts.length} ${plural(x.ts.length, "coche")}</small>`).join("")}</li>`).join("") || '<li class="cap">Aucun lieu.</li>';
+  };
+  $("#lq").addEventListener("input", draw); draw();
+}
+function screenPlace(q) {
+  const P = new URLSearchParams(q || ""), n = P.get("n") || "", pk = P.get("p") || "";
+  const all = placeGroups(), g = all.find((x) => x.l === n && x.p === pk);
+  if (!g) { view.innerHTML = `<div class="screen"><a class="back" href="#/lieux">← Lieux</a><p class="empty">Plus aucune coche à ce lieu.</p></div>`; return; }
+  const same = all.filter((x) => x !== g && x.l && x.l === n);
+  const lists = [...new Set(g.ts.map((t) => t.cle))];
+  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="javascript:history.back()">← Retour</a><h1>${n ? esc(n) : "Lieu sans nom"}</h1>
+    <p class="cap">${g.ts.length} ${plural(g.ts.length, "coche")} à ce point (${lists.map((c) => esc(L(c).nom)).join(", ")})${g.p ? " · " + esc(g.p.replace(",", ", ")) : " · sans coordonnées"}</p></header>
+    ${same.length ? `<p class="tkwarn">« ${esc(n)} » est aussi à ${same.length > 1 ? "d'autres points" : "un autre point"} : ${same.map((x) => `<a href="#/lieu?n=${encodeURIComponent(x.l)}&p=${encodeURIComponent(x.p)}">${x.p ? esc(x.p.replace(",", ", ")) : "sans coordonnées"} (${x.ts.length} ${plural(x.ts.length, "coche")})</a>`).join(", ")}.</p>` : ""}
+    <section class="panel"><h3 class="minor">Renommer ou repositionner</h3>
+      <label>Nom<input class="field" id="pl-n" value="${esc(n)}"></label>
+      <div class="minimap tall" id="pl-map"></div><p class="cap" id="pl-pt">Touche la carte ou déplace l'épingle pour mettre le bon point (◎ : ta position).</p>
+      ${same.length ? `<label class="chk"><input type="checkbox" id="pl-all"> Appliquer aussi aux ${same.reduce((s, x) => s + x.ts.length, 0)} coches de « ${esc(n)} » aux autres points (un seul lieu)</label>` : ""}
+      <div class="row"><button class="btn btn-primary" id="pl-go" type="button" disabled>Enregistrer pour les ${g.ts.length} ${plural(g.ts.length, "coche")}</button></div></section>
+    <h3 class="minor">Les coches</h3><ul class="ticks">${g.ts.slice().sort((a, b) => cmp(b.d || "", a.d || "")).map((t) => row(t, { showList: true, toTick: true })).join("")}</ul></div>`;
+  const pt = { lat: g.lat ?? null, lon: g.lon ?? null };
+  mapPicker($("#pl-map"), g.lat != null ? { lat: g.lat, lon: g.lon } : {}, (lat, lon) => { if (lat == null) return; pt.lat = lat; pt.lon = lon; $("#pl-pt").textContent = `Nouveau point : ${lat}, ${lon}`; check(); });
+  const all_ = $("#pl-all");
+  const targets = () => [...g.ts, ...(all_ && all_.checked ? same.flatMap((x) => x.ts) : [])];
+  const check = () => { const nn = $("#pl-n").value.trim(), moved = pt.lat != null && (pt.lat !== g.lat || pt.lon !== g.lon); const k = targets().length; $("#pl-go").disabled = !(moved || nn !== n || (all_ && all_.checked)); $("#pl-go").textContent = `Enregistrer pour les ${k} ${plural(k, "coche")}`; };
+  $("#pl-n").addEventListener("input", check); if (all_) all_.addEventListener("change", check);
+  $("#pl-go").addEventListener("click", () => {
+    const nn = $("#pl-n").value.trim() || null, ts = targets();
+    const patch = { l: nn, ...(pt.lat != null ? { lat: pt.lat, lon: pt.lon } : {}) };
+    S.apply(ts.map((t) => ({ kind: "set-tick", cle: t.cle, id: t.id, patch })), `Lieu ${n ? "« " + n + " »" : ""} ${nn !== n ? `renommé « ${nn} » et ` : ""}repositionné : ${ts.length} ${plural(ts.length, "coche")}`);
+    // the place list of the form follows
+    if (nn && pt.lat != null) S.apply({ kind: "add-lieu", lieu: { nom: nn, lat: pt.lat, lon: pt.lon } }, `Lieu enregistré : ${nn}`);
+    toast(`${ts.length} ${plural(ts.length, "coche")} ${ts.length > 1 ? "mises" : "mise"} à jour. « Annuler » dans À faire pour revenir en arrière.`);
+    location.replace(`#/lieu?n=${encodeURIComponent(nn || "")}&p=${encodeURIComponent(pt.lat != null ? `${(+pt.lat).toFixed(5)},${(+pt.lon).toFixed(5)}` : pk)}`);
+  });
+}
+
 // ---------- one tick ----------
 // what was seen that day in that list; the species page is one tap away, and so are the same sighting in the other lists
 function screenTick(cle, id) {
@@ -456,7 +507,7 @@ function screenTick(cle, id) {
     ${photos.length ? `<section class="sp-photos">${phSlider(photos, e.n, { del: t.e })}</section>` : ""}
     <div class="qrow"><span class="cap">Étiquette de la photo de cette coche${twins.length ? " (vaut aussi pour la même observation dans ses autres listes)" : ""}</span><div class="qpick" role="group" aria-label="Étiquette de la photo">${QUALITES.map((x) => `<button type="button" class="qtag${t.q === x.v ? " on" : ""}" style="--c:${x.c}" data-tq="${esc(x.v)}" aria-pressed="${t.q === x.v}">${x.court}</button>`).join("")}</div>${M.bestQ(t.e) ? `<span class="cap">Photo best of de l'espèce : ${qTag(M.bestQ(t.e), "best")}</span>` : ""}</div>
     <ul class="plain tkinfo"><li><b>Date</b> ${t.d ? esc(fmtDay(t.d)) : "<em>sans date</em>"}${t.sd ? ` <small>(${esc(srcName(t.sd))})</small>` : ""}</li>
-      <li><b>Lieu</b> ${t.l ? esc(t.l) : "<em>sans nom</em>"}${t.lat != null ? ` · <a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${t.lat}, ${t.lon}</a>` : " · <em>sans coordonnées</em>"}${t.sl ? ` <small>(${esc(srcName(t.sl))})</small>` : ""}</li>
+      <li><b>Lieu</b> ${t.l ? esc(t.l) : "<em>sans nom</em>"}${t.lat != null ? ` · <a href="https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=15/${t.lat}/${t.lon}" target="_blank" rel="noopener">${t.lat}, ${t.lon}</a>` : " · <em>sans coordonnées</em>"}${t.sl ? ` <small>(${esc(srcName(t.sl))})</small>` : ""}${t.l || t.lat != null ? ` <a class="linkish" href="${placeHref(t)}">repositionner ce lieu</a>` : ""}</li>
       ${!isFrance(t.p) ? `<li><b>Pays</b> ${esc(t.p)}</li>` : ""}${t.t ? `<li><b>Détail</b> ${esc(t.t)}</li>` : ""}
       ${twins.length ? `<li><b>Même observation</b> ${twins.map((x) => `<a class="chip-s" ${cstyle(x.cle)} href="#/coche/${x.cle}/${x.id}">${esc(L(x.cle).nom)}${M.rankOf(x) ? " n°" + M.rankOf(x) : ""}</a>`).join(" ")}</li>` : ""}</ul>
     ${t.lat != null ? '<div class="minimap" id="tkm"></div>' : ""}
@@ -714,6 +765,7 @@ function screenMore() {
   view.innerHTML = `<div class="screen"><h2>Plus</h2><nav class="menu">
     <a href="#/calendrier"><b>Calendrier des coches photo</b><small>Toutes les années superposées</small></a>
     <a href="#/a-faire"><b>À faire</b><small>${open} ${plural(open, "tâche")} · ${c.undated.length} coches sans date · ${c.yearMissing.length + c.nested.length + c.srcDate.length + c.photoEarlier.length + c.zoneFirst.length} incohérences</small></a>
+    <a href="#/lieux"><b>Lieux</b><small>Tous tes lieux : renommer ou repositionner un lieu pour toutes ses coches</small></a>
     <a href="#/listes"><b>Mes listes</b><small>Créer une liste région, département, lieu ou pays ; couleurs</small></a>
     <a href="#/import"><b>Importer</b><small>Faune-France, eBird ou cocheurs : compléter dates, lieux et espèces</small></a>
     <button type="button" id="xx"><b>Exporter en Excel</b><small>Toutes les coches, les espèces et les listes</small></button>

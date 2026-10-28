@@ -325,3 +325,5 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .qmini .qwhat{font-size:11px;color:var(--muted);align-self:center;margin-right:2px}
 .bulk li{padding:8px 12px;border-top:1px solid var(--rule)}.bulk li:first-child{border-top:0}.bulk .chk small{display:block}
 .bulk li.off{opacity:.55}
+.minimap.tall{height:320px}
+#lrows small{display:block;color:var(--muted)}
