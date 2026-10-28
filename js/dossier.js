@@ -49,11 +49,15 @@ export async function readFolder(files, l, progress) {
     }
     const t = M.tick(sid, l.cle);
     if (!pick) { kept.push({ sid, why: l.type === "annee" && !cands.length ? `pas de photo en ${l.annee}` : `hors de ${l.nom} (${why})` }); continue; }
-    if (!t) { props.push({ kind: "add", sid, p: pick, count: ps.length, noGps: pick.lat == null && needsArea }); continue; }
+    // the series: every photo of the species that day, to choose the one of the tick (the earliest by default)
+    const day = (d) => ps.filter((p) => p.d === d);
+    // the same observation already has its photo in another list (chosen in the app): it stays the photo, unless you pick one
+    const obsPh = (d) => M.ticks.find((y) => y.e === sid && y.d === d && y.ph && y.cle !== l.cle) || null;
+    if (!t) { props.push({ kind: "add", sid, p: pick, serie: day(pick.d), count: ps.length, noGps: pick.lat == null && needsArea, obs: obsPh(pick.d) }); continue; }
     // already in the list: the app has the say; only what is missing
-    if (!t.d) { props.push({ kind: "date", sid, p: pick, t, count: ps.length }); continue; }
+    if (!t.d) { props.push({ kind: "date", sid, p: pick, serie: day(pick.d), t, count: ps.length }); continue; }
     const own = ps.find((p) => p.d === t.d);
-    if (!M.photosFor(t).length && !t.nph && own) { props.push({ kind: "photo", sid, p: own, t, count: ps.length }); continue; }
+    if (!M.photosFor(t).length && !t.nph && own) { props.push({ kind: "photo", sid, p: own, serie: day(t.d), t, count: ps.length }); continue; }
     kept.push({ sid, why: pick.d < t.d ? `déjà cochée le ${fmtShort(t.d)} (photo plus ancienne du ${fmtShort(pick.d)} : l'appli garde sa date)` : `déjà cochée le ${fmtShort(t.d)}` });
   }
   props.sort((a, b) => (a.p.d + (a.p.h || "")).localeCompare(b.p.d + (b.p.h || "")));
@@ -61,17 +65,43 @@ export async function readFolder(files, l, progress) {
 }
 
 const KIND = { add: "nouvelle", date: "date manquante dans l'appli", photo: "photo manquante dans l'appli" };
+// a small picture of a photo of the folder (read from the disk, never sent)
+const urls = new WeakMap(), urlOf = (p) => { if (!urls.has(p.f)) urls.set(p.f, URL.createObjectURL(p.f)); return urls.get(p.f); };
+const rowHtml = (x, i) => `<span class="fd-th"><img src="${urlOf(x.p)}" alt="" loading="lazy" data-fdview="${i}"></span><label class="chk"><input type="checkbox" data-fd="${i}" ${x.off ? "" : "checked"}><span><b>${esc(M.name(x.sid))}</b> <small class="cap">${esc(KIND[x.kind])}${x.noGps && x.p.lat == null ? " · sans GPS : lieu à vérifier" : ""}</small><small class="cap">${esc(fmtShort(x.p.d))}${x.p.h ? " " + esc(x.p.h) : ""} · ${esc(x.p.f.name)}${x.p.lat != null ? ` · ${x.p.lat}, ${x.p.lon}` : ""}</small>${x.obs && !x.chosen ? `<small class="cap">📷 garde la photo de l'observation (${esc(M.liste.get(x.obs.cle).nom)} : ${esc(x.obs.ph.file || "")})</small>` : ""}</span></label>${x.serie.length > 1 ? `<button type="button" class="btn fd-pick" data-fdview="${i}">Choisir la photo · ${x.serie.length} ce jour-là</button>` : ""}`;
+// the series of a species that day, big, one at a time: « Choisir cette photo » makes it the photo of the tick
+function viewSerie(x, onPick) {
+  let i = Math.max(0, x.serie.indexOf(x.p));
+  const box = document.createElement("div"); box.className = "lightbox serview";
+  box.innerHTML = `<img alt=""><div class="sv-bar"><button type="button" class="sv-prev" aria-label="Photo précédente">‹</button><span class="sv-n"></span><button type="button" class="sv-next" aria-label="Photo suivante">›</button></div><div class="sv-act"><button type="button" class="btn btn-primary sv-pick">Choisir cette photo</button><button type="button" class="btn sv-close">Fermer</button></div>`;
+  const show = () => { const p = x.serie[i]; $("img", box).src = urlOf(p); $(".sv-n", box).textContent = `${i + 1} / ${x.serie.length} · ${p.h || ""} · ${p.f.name}${p === x.p ? " · choisie" : ""}`; $(".sv-pick", box).textContent = p === x.p ? "Garder cette photo" : "Choisir cette photo"; };
+  const close = () => { box.remove(); document.removeEventListener("keydown", key); };
+  const move = (d) => { i = (i + d + x.serie.length) % x.serie.length; show(); };
+  const key = (ev) => { if (ev.key === "Escape") close(); if (ev.key === "ArrowLeft") move(-1); if (ev.key === "ArrowRight") move(1); };
+  box.addEventListener("click", (ev) => { ev.stopPropagation(); if (ev.target === box) close(); });
+  $(".sv-prev", box).addEventListener("click", () => move(-1)); $(".sv-next", box).addEventListener("click", () => move(1));
+  $(".sv-close", box).addEventListener("click", close);
+  $(".sv-pick", box).addEventListener("click", () => { onPick(x.serie[i]); close(); });
+  let x0 = null; box.addEventListener("touchstart", (ev) => { x0 = ev.touches[0].clientX; }, { passive: true });
+  box.addEventListener("touchend", (ev) => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) move(dx < 0 ? 1 : -1); }, { passive: true });
+  document.addEventListener("keydown", key); document.body.appendChild(box); show();
+}
 export function showFolder(el, l, res, onDone) {
   const { props, kept, noSp, noDate, total } = res;
   el.innerHTML = `<section class="panel"><h3 class="minor">Dossier : ${total} ${plural(total, "photo")} lue${total > 1 ? "s" : ""}</h3>
     ${props.length ? `<p class="cap">Une ligne par espèce : sa plus ancienne photo qui convient à ${esc(l.nom)}${l.type === "annee" ? ` (prise en ${l.annee})` : ""}. Date, heure et GPS viennent de la photo ; le nom du lieu est trouvé d'après le GPS.</p>
     <label class="chk"><input type="checkbox" id="fd-ph" checked> Mettre aussi la photo sur la coche (copie réduite envoyée dans ta base)</label>
-    <ul class="ticks bulk">${props.map((x, i) => `<li><label class="chk"><input type="checkbox" data-fd="${i}" checked><span><b>${esc(M.name(x.sid))}</b> <small class="cap">${esc(KIND[x.kind])}${x.noGps ? " · sans GPS : lieu à vérifier" : ""}</small><small class="cap">${esc(fmtShort(x.p.d))}${x.p.h ? " " + esc(x.p.h) : ""} · ${esc(x.p.f.name)}${x.p.lat != null ? ` · ${x.p.lat}, ${x.p.lon}` : ""}${x.count > 1 ? ` · ${x.count} photos de l'espèce` : ""}</small></span></label></li>`).join("")}</ul>
+    <ul class="ticks bulk fdlist">${props.map((x, i) => `<li data-row="${i}">${rowHtml(x, i)}</li>`).join("")}</ul>
     <div class="row"><button class="btn btn-primary" id="fd-go" type="button">Enregistrer ${props.length} ${plural(props.length, "coche")}</button></div><p class="msg" id="fd-msg"></p>` : '<p class="cap">Rien à ajouter à cette liste avec ces photos.</p>'}
     ${kept.length ? `<details><summary>${kept.length} ${plural(kept.length, "espèce")} sans changement</summary><ul class="cap">${kept.map((x) => `<li>${esc(M.name(x.sid))} : ${esc(x.why)}</li>`).join("")}</ul></details>` : ""}
     ${noSp.length ? `<details><summary>${noSp.length} ${plural(noSp.length, "photo")} sans espèce reconnue</summary><p class="cap">Ni mot-clé, ni dossier, ni début de nom de fichier ne donne une espèce de ta base.</p><ul class="cap">${noSp.slice(0, 200).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}
     ${noDate.length ? `<details><summary>${noDate.length} ${plural(noDate.length, "photo")} sans date de prise de vue</summary><ul class="cap">${noDate.slice(0, 200).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}</section>`;
   const go_ = $("#fd-go", el); if (!go_) return;
+  // a tap on the picture or on « Choisir la photo » opens the series; the choice only with « Choisir cette photo »
+  el.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-fdview]"); if (!b) return; ev.preventDefault(); ev.stopPropagation();
+    const i = +b.dataset.fdview, x = props[i];
+    viewSerie(x, (p) => { const li = $(`[data-row="${i}"]`, el); x.off = !$("[data-fd]", li).checked; x.p = p; x.chosen = true; li.innerHTML = rowHtml(x, i); });
+  }, true);
   go_.addEventListener("click", async () => {
     const sel = $$("[data-fd]", el).filter((i) => i.checked).map((i) => props[+i.dataset.fd]); if (!sel.length) { toast("Rien de sélectionné."); return; }
     const withPh = $("#fd-ph", el).checked, msg = $("#fd-msg", el); go_.disabled = true;
@@ -82,7 +112,7 @@ export function showFolder(el, l, res, onDone) {
       const place = {};
       if (p.lat != null && (!x.t || x.t.lat == null)) { place.lat = p.lat; place.lon = p.lon; place.sl = "photo"; if (!x.t || !x.t.l) { const n = await nameAt(p.lat, p.lon).catch(() => null); if (n && n.l) place.l = n.l; if (n && n.p) place.p = n.p; } }
       let ph = null;
-      if (withPh && (!x.t || !x.t.ph)) {
+      if (withPh && (!x.t || !x.t.ph) && (!x.obs || x.chosen)) {
         try { const img = `data/photos/listes/${l.cle}/${id}.jpg`; await S.putImage(img, await shrink(p.f), `Photo de la coche : ${M.name(x.sid)} (${l.nom}, ${fmtShort(p.d)})`); ph = { img, d: p.d, h: p.h || null, file: p.f.name, src: "dossier" }; }
         catch (e) { fails++; console.error(e); }
       }

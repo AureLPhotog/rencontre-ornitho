@@ -135,21 +135,26 @@ export function buildModel(db) {
   M.allPhotos = (sid) => { if (!allMemo.has(sid)) allMemo.set(sid, allPhotosOf(sid)); return allMemo.get(sid); };
   const allPhotosOf = (sid) => {
     // the same picture stored twice (Liste folder and added to a tick, or chosen again as best of) shows once,
-    // with all its roles in its caption
-    const out = [], seen = new Map(), add = (p, label, q) => {
+    // with all its roles in its caption: best of, lifer, the lists whose tick it is the photo of
+    const out = [], seen = new Map();
+    const add = (p, role, q) => {
       const ks = [p.img || p.url, M.picKey(p)].filter(Boolean); if (!ks.length) return;
-      const had = ks.map((k) => seen.get(k)).find(Boolean);
-      if (had) { if (!had.label.split(" · ").includes(label.split(" · ")[0])) had.label += " · " + label; if (!had.q && q) had.q = q; ks.forEach((k) => seen.set(k, had)); return; }
-      const x = { ...p, label, ...(q ? { q } : {}) }; out.push(x); ks.forEach((k) => seen.set(k, x));
+      let x = ks.map((k) => seen.get(k)).find(Boolean);
+      if (!x) { x = { ...p, roles: [] }; out.push(x); }
+      if (!x.roles.includes(role)) x.roles.push(role); if (!x.q && q) x.q = q; ks.forEach((k) => seen.set(k, x));
     };
     const ticks = [...(M.bySp.get(sid) || new Map()).values()].flat();
-    const lif = M.tick(sid, LIFERS), firsts = M.firstPhotos(sid);
-    const lifPhoto = lif && (lif.ph || firsts.find((p) => p.d === lif.d));
-    const best = M.bestPhoto(sid);
-    if (best) add(best, "Meilleure photo", M.bestQ(sid));
-    if (lifPhoto) add(lifPhoto, "Photo lifer", lif.q);
-    firsts.forEach((p) => add(p, lif && lif.d && p.d < lif.d ? "Photo d'avant la coche (ne compte pas)" : firsts.length > 1 ? `Première photo ${p.zone === "France" ? "en France" : "en " + p.zone}` : "Première photo"));
-    ticks.filter((t) => t.ph).forEach((t) => add(t.ph, `Photo de la coche · ${(M.liste.get(t.cle) || { nom: t.cle }).nom}`, t.q));
+    const lif = M.tick(sid, LIFERS), best = M.bestPhoto(sid);
+    if (best) add(best, "best", M.bestQ(sid));
+    const lifPhoto = lif && M.photosFor(lif)[0];
+    if (lifPhoto) add(lifPhoto, "lifer", lif.q);
+    // the photo of each tick (its own, or the Liste folder's of that day); a first photo that is no tick's photo is not shown
+    ticks.filter((t) => t.cle !== LIFERS).forEach((t) => { const p = M.photosFor(t)[0]; if (p) add(p, "list:" + t.cle, t.q); });
+    out.forEach((x) => {
+      const lists = x.roles.filter((r) => r.startsWith("list:")).map((r) => (M.liste.get(r.slice(5)) || { nom: r.slice(5) }).nom);
+      x.label = [x.roles.includes("best") ? "Meilleure photo" : "", x.roles.includes("lifer") ? "Photo lifer" : "", lists.length ? `Photo de la coche${x.roles.includes("lifer") ? "" : ""} : ${lists.join(", ")}` : ""].filter(Boolean).join(" · ");
+      delete x.roles;
+    });
     return out;
   };
   // what to show for a tick (map, to-do): only the photo of that very day, never one of another day or place,
@@ -159,6 +164,9 @@ export function buildModel(db) {
     const q = t.q ? { q: t.q } : {};
     if (t.ph) return [{ ...t.ph, label: "Photo de la coche", ...q }];
     if (t.nph) return []; // « pas de photo de cette coche » : the photos of that day in the folders are of another sighting
+    // the photo of the same observation in another list (Lifers, Photo France…): one observation, one photo
+    if (t.d) { M._phDay = M._phDay || (() => { const m = new Map(); M.ticks.forEach((x) => { if (x.ph && x.d) { const k = x.e + "|" + x.d; if (!m.has(k)) m.set(k, []); m.get(k).push(x); } }); return m; })();
+      const tw = (M._phDay.get(t.e + "|" + t.d) || []).find((x) => x.cle !== t.cle && M.sameObs(x, t)); if (tw) return [{ ...tw.ph, label: "Photo de la coche", ...q }]; }
     const same = first ? M.firstPhotos(t.e).find((x) => x.d === t.d) : null; return same ? [{ ...same, label: "Photo de la coche", ...q }] : [];
   };
   // a species by any of its names: French name, other names, Latin names
