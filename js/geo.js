@@ -137,3 +137,14 @@ export async function lieuOuessant(lat, lon, maxKm = 0.3) {
 }
 // a bare commune or region name says nothing of the spot: never offered as « a name you already gave »
 export const vagueName = (l) => /^(france|guyane|espagne|ouessant)( \(29\))?$/i.test(String(l || "").trim());
+
+// a name for a point: the lieu-dit of Ouessant, else the IGN lieu-dit with its commune, else the commune; abroad the
+// country (p: the country when not in France)
+export async function nameAt(lat, lon) {
+  if (onOuessant(lat, lon)) { const n = await lieuOuessant(lat, lon); if (n) return { l: n, p: null }; }
+  const w = await whereIs(lat, lon); if (!w) return null;
+  const p = !w.fr && w.pays ? w.pays : null;
+  const ld = w.fr || w.mer ? await lieuDit(lat, lon, w.commune) : null;
+  const l = ld ? (w.commune ? `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})` : ld.name) : w.commune ? (w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune) : w.pays || null;
+  return l ? { l, p, w } : { l: null, p, w };
+}

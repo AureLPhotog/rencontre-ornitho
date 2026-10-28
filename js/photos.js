@@ -102,7 +102,7 @@ export async function flickrPhoto(url) {
 
 // ---------- the checks ----------
 // a keyword that is exactly the name of a species (or one of its other names)
-function speciesOfKeyword(k) {
+export function speciesOfKeyword(k) {
   const nk = norm(k).replace(/[^a-z0-9]+/g, " ").trim(); if (!nk) return null;
   for (const e of M.esp.values()) for (const n of [e.n, ...(e.al || [])]) if (norm(n).replace(/[^a-z0-9]+/g, " ").trim() === nk) return e.id;
   return null;

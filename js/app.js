@@ -8,7 +8,8 @@ import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { whereIs, outsideOf, lieuDit, lieuOuessant, onOuessant } from "./geo.js";
+import { whereIs, outsideOf, nameAt } from "./geo.js";
+import { readFolder, showFolder } from "./dossier.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -380,6 +381,9 @@ function screenBulk(cle) {
   const already = all.filter((e) => inList(e.id)).length;
   view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Cocher plusieurs espèces</h1>
     <p class="cap">Coche les espèces à ajouter à ${esc(l.nom)}. En bas, tu peux leur donner une date et un lieu, ou passer : À faire te demandera ensuite ce qui manque (date, GPS, photo).${l.numerotee ? " Les numéros suivent les dates ; sans date, ils prennent la suite dans l'ordre où tu coches." : ""} ${already} ${plural(already, "espèce")} déjà dans la liste ${already > 1 ? "ne sont" : "n'est"} pas proposée${already > 1 ? "s" : ""}.</p></header>
+    <div class="row"><label class="btn">📁 Depuis un dossier de photos<input type="file" id="b-dir" accept="image/jpeg" multiple webkitdirectory hidden></label><label class="btn">🖼 Choisir des photos<input type="file" id="b-files" accept="image/jpeg" multiple hidden></label></div>
+    <p class="cap">Les photos doivent avoir le nom de l'espèce en mot-clé (sinon le nom du dossier ou le début du nom du fichier). Chaque espèce est cochée avec la date, l'heure et le GPS de sa plus ancienne photo qui convient à la liste.</p>
+    <div id="b-fold"></div>
     <input class="field" type="search" id="bq" placeholder="Chercher un oiseau" autocomplete="off">
     <label class="chk"><input type="checkbox" id="b-seen"> Seulement les espèces déjà cochées dans une autre liste</label>
     <ul class="ticks bulk" id="brows"></ul>
@@ -404,15 +408,19 @@ function screenBulk(cle) {
   const mp = mapPicker($("#b-map"), spot ? { lat: spot.lat, lon: spot.lon } : {}, async (lat, lon) => {
     if (lat == null) return; setPt(lat, lon);
     const li = $("#b-l"); if (li.value && li.value !== autoName) return; // a name you typed stays
-    let name = null; pt.p = null;
-    if (onOuessant(lat, lon)) name = await lieuOuessant(lat, lon);
-    if (!name) { const w = await whereIs(lat, lon); if (w && !w.fr && w.pays) pt.p = w.pays;
-      const ld = w && (w.fr || w.mer) ? await lieuDit(lat, lon, w.commune) : null;
-      name = ld ? (w.commune ? `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})` : ld.name) : w && w.commune ? (w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune) : w && w.pays ? w.pays : null; }
+    const r = await nameAt(lat, lon), name = r && r.l; pt.p = r ? r.p : null;
     if (name && (!li.value || li.value === autoName)) { li.value = autoName = name; }
   });
   if (spot) { setPt(spot.lat, spot.lon); $("#b-l").value = autoName = spot.nom || ""; }
   $("#bq").addEventListener("input", draw); $("#b-seen").addEventListener("change", draw);
+  // a folder (or a choice) of photos
+  const fold = async (ev) => {
+    const files = [...ev.target.files]; ev.target.value = ""; if (!files.length) return;
+    const el = $("#b-fold"); el.innerHTML = '<p class="msg" id="b-fmsg"></p>';
+    try { const res = await readFolder(files, l, (t) => { const m = $("#b-fmsg"); if (m) m.textContent = t; }); showFolder(el, l, res, () => go("#/liste/" + cle)); el.scrollIntoView({ block: "start" }); }
+    catch (e) { el.innerHTML = `<p class="msg bad">${esc(e.message)}</p>`; }
+  };
+  $("#b-dir").addEventListener("change", fold); $("#b-files").addEventListener("change", fold);
   $("#brows").addEventListener("change", (ev) => { const i = ev.target.closest("[data-b]"); if (!i) return; if (i.checked) sel.add(i.dataset.b); else sel.delete(i.dataset.b); count(); });
   $("#b-go").addEventListener("click", () => {
     if (!sel.size) return; let n = l.numerotee ? M.nextNum(cle) : 0;
