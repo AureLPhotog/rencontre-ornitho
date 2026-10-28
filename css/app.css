@@ -328,3 +328,4 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .minimap.tall{height:320px}
 #lrows small{display:block;color:var(--muted)}
 details.zone{background:var(--leaf);border:1px solid var(--rule);border-radius:12px;padding:10px 12px}details.zone summary{cursor:pointer;font-size:14px}details.zone .ticks{margin-top:8px}
+details.zone.sub{margin:8px 0 0;background:var(--paper)}

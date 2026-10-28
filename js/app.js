@@ -474,8 +474,15 @@ function screenPlaces() {
     const xs = all.filter((x) => !k || norm(x.l).includes(k));
     if (by === "nb") { $("#lrows").innerHTML = `<ul class="ticks bulk">${nameRows(xs) || '<li class="cap">Aucun lieu.</li>'}</ul>`; return; }
     const g = new Map(); xs.forEach((x) => { const z = x.zone || (x.zone = placeZone(x)); if (!g.has(z)) g.set(z, []); g.get(z).push(x); });
-    $("#lrows").innerHTML = [...g].sort((a, b) => zoneOrder(a[0]) - zoneOrder(b[0]) || byFr(zoneName(a[0]), zoneName(b[0]))).map(([z, ys]) => `<details class="sres zone" ${k || g.size === 1 || UI.lopen === z ? "open" : ""} data-z="${esc(z)}"><summary><span class="chip-s" ${z === "france" || z.startsWith("pays:") ? "" : cstyle(z)}>${esc(zoneName(z))}</span> ${(() => { const n = new Set(ys.map((x) => x.l)).size, c = total(ys); return `${n} ${plural(n, "lieu", "lieux")} · ${c} ${plural(c, "coche")}`; })()}</summary><ul class="ticks bulk">${nameRows(ys)}</ul></details>`).join("") || '<p class="cap">Aucun lieu.</p>';
-    $$("details.zone", view).forEach((d) => d.addEventListener("toggle", () => { if (d.open) saveUI({ lopen: d.dataset.z }); }));
+    const count = (ys) => { const n = new Set(ys.map((x) => x.l)).size, c = total(ys); return `${n} ${plural(n, "lieu", "lieux")} · ${c} ${plural(c, "coche")}`; };
+    const block = (z, ys, label, cls = "") => `<details class="sres zone${cls}" ${k || UI.lopen === z || (UI.lopen || "").startsWith(z + "/") ? "open" : ""} data-z="${esc(z)}"><summary>${label} ${count(ys)}</summary><ul class="ticks bulk">${nameRows(ys)}</ul></details>`;
+    const sorted = [...g].sort((a, b) => zoneOrder(a[0]) - zoneOrder(b[0]) || byFr(zoneName(a[0]), zoneName(b[0])));
+    // France holds its zones (AURA, Ouessant, Corse…) and the places elsewhere in France; then the countries
+    const frz = sorted.filter(([z]) => z === "france" || (M.liste.get(z) && M.liste.get(z).dans === PHOTO_FR)), abroad = sorted.filter((e) => !frz.includes(e));
+    const frAll = frz.flatMap(([, ys]) => ys);
+    const fr = frAll.length ? `<details class="sres zone" ${k || (UI.lopen || "").startsWith("fr") ? "open" : ""} data-z="fr"><summary><span class="chip-s" ${cstyle(PHOTO_FR)}>France</span> ${count(frAll)}</summary>${frz.map(([z, ys]) => block("fr/" + z, ys, z === "france" ? '<span class="chip-s">Ailleurs en France</span>' : `<span class="chip-s" ${cstyle(z)}>${esc(zoneName(z))}</span>`, " sub")).join("")}</details>` : "";
+    $("#lrows").innerHTML = fr + abroad.map(([z, ys]) => block(z, ys, `<span class="chip-s" ${z.startsWith("pays:") ? "" : cstyle(z)}>${esc(zoneName(z))}</span>`)).join("") || '<p class="cap">Aucun lieu.</p>';
+    $$("details.zone", view).forEach((d) => d.addEventListener("toggle", (ev) => { ev.stopPropagation(); if (d.open) saveUI({ lopen: d.dataset.z }); }));
   };
   $("#lq").addEventListener("input", draw);
   $$("[data-lby]").forEach((b) => b.addEventListener("click", () => { saveUI({ lby: b.dataset.lby }); screenPlaces(); }));
