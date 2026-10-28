@@ -113,8 +113,6 @@ export function buildModel(db) {
   M.firstPhotos = (sid) => { let r = firstMemo.get(sid); if (!r) { const hid = hiddenOf(sid); r = (((db.vign || {})[sid] || {}).p || []).map(([d, h, img, file, zone]) => ({ d, h, img, file, zone })).filter((p) => !hid.has(p.img)); firstMemo.set(sid, r); } return r; };
   // the best photo: the one you chose in the app (species "best"), else one prepared in the data repo
   M.bestPhoto = (sid) => { const e = M.esp.get(sid); if (e && e.best) return e.best; const b = ((db.vign || {})[sid] || {}).b; return b && !hiddenOf(sid).has(b[2]) ? { d: b[0], h: b[1], img: b[2], file: b[3], zone: b[4] } : null; };
-  // the series of photos of that day (Liste folder) to choose the photo of an observation from
-  M.series = (sid, d) => (((db.series || {})[sid + "|" + d]) || []).map(([img, h, file]) => ({ img, h, file, d }));
   // deleting a photo everywhere it shows: best of, photo of ticks, photo of the Liste folder
   M.deletePhotoOps = (sid, key) => {
     const e = M.esp.get(sid) || {}, patch = {};
@@ -160,6 +158,7 @@ export function buildModel(db) {
   M.photosFor = (t, { first = true } = {}) => {
     const q = t.q ? { q: t.q } : {};
     if (t.ph) return [{ ...t.ph, label: "Photo de la coche", ...q }];
+    if (t.nph) return []; // « pas de photo de cette coche » : the photos of that day in the folders are of another sighting
     const same = first ? M.firstPhotos(t.e).find((x) => x.d === t.d) : null; return same ? [{ ...same, label: "Photo de la coche", ...q }] : [];
   };
   // a species by any of its names: French name, other names, Latin names

@@ -304,8 +304,6 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .errbox{white-space:pre-wrap;font-size:12px;background:var(--leaf);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow:auto}
 .todo li.has-ph>.qpick{grid-column:2}.todo .qpick .qtag{font-size:12px;padding:3px 9px}
 .todo li.wrap{flex-wrap:wrap}.td-phbox{flex-basis:100%}.td-phbox .phbox{margin:0;border:0;padding:0;box-shadow:none}
-.ser-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}.ser-pk{padding:0;border:2px solid transparent;border-radius:8px;background:none;cursor:pointer;position:relative;overflow:hidden}.ser-pk .ph{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;border-radius:6px}.ser-pk.on{border-color:var(--kf)}.ser-pk small{position:absolute;right:4px;bottom:3px;font-size:10px;background:rgba(0,0,0,.55);color:#fff;border-radius:4px;padding:0 4px}
-.serview{flex-direction:column;gap:10px}.serview img{max-height:72vh}.serview .sv-bar{display:flex;align-items:center;gap:16px;color:#fff}.serview button{position:static}.serview .sv-bar button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:999px;width:44px;height:44px;font-size:26px;cursor:pointer}.sv-n{font-family:var(--f-data);font-size:13px;min-width:150px;text-align:center}.sv-act{display:flex;gap:8px}.serview .sv-act .btn{width:auto;height:auto;border-radius:8px;font-size:14px}.serview .sv-act .btn:not(.btn-primary){background:var(--leaf);color:var(--ink)}
 /* import: the app's validations come first; « reprendre à 0 » asks three times */
 .imp-rule h3{margin-top:0}
 .reset summary{color:var(--bad,#B42318);cursor:pointer;font-weight:600}
