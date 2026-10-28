@@ -1,14 +1,14 @@
 // Rencontre Ornitho: router, shell and the read-only screens.
-import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName, QUALITES, qualite, qTag, byFr, cmp } from "./util.js";
+import { $, $$, esc, norm, plural, fmtDay, fmtShort, MOIS, MOIS_C, todayIso, yearOf, isFrance, store, toast, srcName, QUALITES, qualite, qTag, byFr, cmp, uid } from "./util.js";
 import { Store } from "./store.js";
 import { buildModel, PHOTO_FR, LIFERS, VU } from "./model.js";
 import { renderAdd, renderEdit } from "./form.js";
-import { mapView, listMap, dropMaps } from "./map.js";
+import { mapView, listMap, dropMaps, mapPicker } from "./map.js";
 import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { whereIs, outsideOf } from "./geo.js";
+import { whereIs, outsideOf, lieuDit, lieuOuessant, onOuessant } from "./geo.js";
 
 export const S = new Store();
 export let M = buildModel(S.db);
@@ -57,7 +57,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.e
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
   [/^#\/journal$/, screenJournal], [/^#\/especes$/, screenAllSpecies], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
-  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
+  [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/liste\/([\w-]+)\/plusieurs$/, screenBulk], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
 let current = "";
@@ -65,7 +65,7 @@ export function go(hash) { if (location.hash === hash) route(); else location.ha
 function route(soft) {
   const h = location.hash || "#/";
   if (!S.ready && !/^#\/reglages/.test(h)) { location.replace("#/reglages"); return; }
-  if (soft && (/^#\/(ajout|coche|listes|import|carte)/.test(h))) return; // never redraw a form while it is open
+  if (soft && (/^#\/(ajout|coche|listes|import|carte)/.test(h) || /\/plusieurs$/.test(h))) return; // never redraw a form while it is open
   if (soft && h === current && document.querySelector(".keep-scroll")) { const y = scrollY; draw(h); scrollTo(0, y); return; }
   draw(h);
 }
@@ -359,7 +359,7 @@ function screenList(cle) {
     : (a, b) => !a.d || !b.d ? (!a.d) - (!b.d) : sg * cmp(a.d, b.d));
   const parent = l.dans && M.liste.get(l.dans);
   view.innerHTML = `<div class="screen keep-scroll">
-    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}${l.photosAttente ? '<p class="cap">📷 Photos en attente : À faire ne les demande pas encore (Plus › Mes listes pour changer).</p>' : ""}</header>
+    <header class="phead"><a class="back" href="#/">← Listes</a><h1>${esc(l.nom)}</h1><p class="big">${items.length} <small>${plural(items.length, "espèce")}</small> <a class="btn btn-map" href="#/carte/${esc(cle)}">🗺️ Carte</a> <a class="btn btn-map" href="#/liste/${esc(cle)}/plusieurs">＋ Plusieurs</a></p>${l.note ? `<p class="cap">${esc(l.note)}${parent ? ` · comprise dans ${esc(parent.nom)}` : ""}</p>` : ""}${l.photosAttente ? '<p class="cap">📷 Photos en attente : À faire ne les demande pas encore (Plus › Mes listes pour changer).</p>' : ""}</header>
     <div class="tools lt"><input class="field" type="search" id="q" placeholder="Chercher dans la liste" value="${esc(UI.q || "")}">
       <div class="seg" role="group" aria-label="Trier">${opts.map(([k, t]) => `<button type="button" data-sort="${k}" aria-pressed="${sort === k}">${t}</button>`).join("")}</div>${dirBtn(asc, true)}</div>
     <ul class="ticks" id="rows">${sorted.map((t) => row(t, { from: cle, toTick: true })).join("")}</ul>
@@ -370,6 +370,61 @@ function screenList(cle) {
   q.addEventListener("input", filter); filter();
   $$("[data-sort]").forEach((b) => b.addEventListener("click", () => { saveUI({ sort: b.dataset.sort }); screenList(cle); }));
   $("#dir").addEventListener("click", () => { saveUI({ dirs: { ...(UI.dirs || {}), [sort]: asc ? "desc" : "asc" } }); screenList(cle); });
+}
+
+// ---------- several ticks at once in one list ----------
+// tick the species seen, nothing else: they go in without date or place, À faire asks for them afterwards
+function screenBulk(cle) {
+  const l = M.liste.get(cle); if (!l) return go("#/");
+  const sel = new Set(), all = M.db.especes.slice().sort((a, b) => byFr(a.n, b.n)), inList = (id) => M.inList(id, cle);
+  const already = all.filter((e) => inList(e.id)).length;
+  view.innerHTML = `<div class="screen"><header class="phead"><a class="back" href="#/liste/${esc(cle)}">← ${esc(l.nom)}</a><h1>Cocher plusieurs espèces</h1>
+    <p class="cap">Coche les espèces à ajouter à ${esc(l.nom)}. En bas, tu peux leur donner une date et un lieu, ou passer : À faire te demandera ensuite ce qui manque (date, GPS, photo).${l.numerotee ? " Les numéros suivent les dates ; sans date, ils prennent la suite dans l'ordre où tu coches." : ""} ${already} ${plural(already, "espèce")} déjà dans la liste ${already > 1 ? "ne sont" : "n'est"} pas proposée${already > 1 ? "s" : ""}.</p></header>
+    <input class="field" type="search" id="bq" placeholder="Chercher un oiseau" autocomplete="off">
+    <label class="chk"><input type="checkbox" id="b-seen"> Seulement les espèces déjà cochées dans une autre liste</label>
+    <ul class="ticks bulk" id="brows"></ul>
+    <section class="panel" id="b-when"><h3 class="minor">Date et lieu, pour toutes <small class="cap">(facultatif)</small></h3>
+      <p class="cap">Laisse vide pour passer : À faire te les demandera plus tard.</p>
+      <label>Date<input class="field" type="date" id="b-d" max="${todayIso()}"></label>
+      <label>Lieu<input class="field" id="b-l" placeholder="Nom du lieu (rempli tout seul si tu touches la carte)" autocomplete="off"></label>
+      <div class="minimap" id="b-map"></div><p class="cap" id="b-pt">Touche la carte (ou ◎ pour ta position) pour placer le point.</p></section>
+    <div class="row sticky-act"><button class="btn btn-primary btn-lg" id="b-go" type="button" disabled>Ajouter</button><span class="cap" id="b-n"></span></div></div>`;
+  const where = (id) => { const m = M.bySp.get(id); return m ? M.listes.filter((x) => m.has(x.cle) && x.type !== "annee").map((x) => x.nom).join(", ") : ""; };
+  const count = () => { const n = sel.size; $("#b-go").disabled = !n; $("#b-go").textContent = n ? `Ajouter ${n} ${plural(n, "coche")} à ${l.nom}` : "Ajouter"; $("#b-n").textContent = n ? [...sel].map((id) => M.name(id)).join(", ") : ""; };
+  const draw = () => {
+    const k = norm($("#bq").value), seen = $("#b-seen").checked;
+    // searching: the best matches first, those already in the list shown (greyed) so you know why they cannot be ticked
+    const es = (k ? M.search($("#bq").value, 60) : all.filter((e) => !inList(e.id))).filter((e) => !seen || M.bySp.has(e.id));
+    $("#brows").innerHTML = es.map((e) => { const has = inList(e.id); return `<li${has ? ' class="off"' : ""}><label class="chk"><input type="checkbox" data-b="${esc(e.id)}" ${sel.has(e.id) ? "checked" : ""}${has ? " disabled" : ""}><span><b>${esc(e.n)}</b>${e.sc ? ` <i class="cap">${esc(e.sc)}</i>` : ""}<small class="cap">${has ? `déjà dans ${esc(l.nom)}` : esc(where(e.id) || "jamais cochée")}</small></span></label></li>`; }).join("") || '<li class="cap">Aucune espèce trouvée.</li>';
+  };
+  // date and place for the whole selection; a list with a fixed spot (garden, office) starts on it
+  const pt = { lat: null, lon: null, p: null }, spot = l.lieux && l.lieux.length ? l.lieux[l.lieux.length - 1] : null;
+  let autoName = "";
+  const setPt = (lat, lon) => { pt.lat = lat; pt.lon = lon; $("#b-pt").textContent = lat == null ? "Pas de point." : `Point : ${lat}, ${lon}`; };
+  const mp = mapPicker($("#b-map"), spot ? { lat: spot.lat, lon: spot.lon } : {}, async (lat, lon) => {
+    if (lat == null) return; setPt(lat, lon);
+    const li = $("#b-l"); if (li.value && li.value !== autoName) return; // a name you typed stays
+    let name = null; pt.p = null;
+    if (onOuessant(lat, lon)) name = await lieuOuessant(lat, lon);
+    if (!name) { const w = await whereIs(lat, lon); if (w && !w.fr && w.pays) pt.p = w.pays;
+      const ld = w && (w.fr || w.mer) ? await lieuDit(lat, lon, w.commune) : null;
+      name = ld ? (w.commune ? `${ld.name} (${w.commune}${w.dep ? ", " + w.dep : ""})` : ld.name) : w && w.commune ? (w.fr && w.dep ? `${w.commune} (${w.dep})` : w.commune) : w && w.pays ? w.pays : null; }
+    if (name && (!li.value || li.value === autoName)) { li.value = autoName = name; }
+  });
+  if (spot) { setPt(spot.lat, spot.lon); $("#b-l").value = autoName = spot.nom || ""; }
+  $("#bq").addEventListener("input", draw); $("#b-seen").addEventListener("change", draw);
+  $("#brows").addEventListener("change", (ev) => { const i = ev.target.closest("[data-b]"); if (!i) return; if (i.checked) sel.add(i.dataset.b); else sel.delete(i.dataset.b); count(); });
+  $("#b-go").addEventListener("click", () => {
+    if (!sel.size) return; let n = l.numerotee ? M.nextNum(cle) : 0;
+    const d = $("#b-d").value || null, nom = $("#b-l").value.trim() || null;
+    if (d && l.type === "annee" && d.slice(0, 4) !== String(l.annee)) { toast(`La date doit être en ${l.annee} pour ${l.nom}.`, "error"); return; }
+    const place = { ...(d ? { d } : {}), ...(nom ? { l: nom } : {}), ...(pt.lat != null ? { lat: pt.lat, lon: pt.lon } : {}), ...(pt.p ? { p: pt.p } : {}), ...(spot && pt.lat === spot.lat && pt.lon === spot.lon ? { sl: "fixe" } : {}) };
+    const ops = [...sel].map((e) => ({ kind: "add-tick", cle, tick: { id: `${cle}-${uid()}`, e, ...place, ...(l.numerotee ? { n: n++ } : {}) } }));
+    S.apply(ops, `${l.nom} : ${ops.length} ${plural(ops.length, "coche")} ajoutée${ops.length > 1 ? "s" : ""} (${[...sel].map((id) => M.name(id)).join(", ")})`);
+    toast(`${ops.length} ${plural(ops.length, "coche")} ajoutée${ops.length > 1 ? "s" : ""} à ${l.nom}. « Annuler » dans À faire pour revenir en arrière.`);
+    go("#/liste/" + cle);
+  });
+  draw(); count();
 }
 
 // ---------- one tick ----------
