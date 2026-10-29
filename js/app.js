@@ -126,7 +126,7 @@ new MutationObserver(() => hydrate(view)).observe(view, { childList: true, subtr
 // tag: for each photo, the label to show and change in one tap ({ cur, host }), or null
 export function phSlider(photos, name, { del, tag } = {}) {
   if (!photos.length) return "";
-  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""}>${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) : ""}${p.nv ? ' · <span class="miss">date non vérifiée</span>' : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small>${(() => { const t = tag && tag(p); return t ? qPick(t.cur, t.host, "Étiquette de cette photo") : ""; })()}</figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
+  return `<div class="phs" data-i="0">${photos.map((p, i) => `<figure class="phs-f"${i ? " hidden" : ""} data-when="${esc(p.d ? fmtDay(p.d) + (p.h ? " à " + p.h : "") : "")}">${phImg(p.img || p.url, name)}<figcaption><b>${esc(p.label)}</b>${qTag(p.q)}${p.d ? " · " + esc(fmtShort(p.d)) + (p.h ? " à " + esc(p.h) : "") : ""}${p.nv ? ' · <span class="miss">date non vérifiée</span>' : ""}${p.zone && p.zone !== "France" ? " · " + esc(p.zone) : ""}<small>${esc(p.file || "")}${p.page ? ` · <a href="${esc(p.page)}" target="_blank" rel="noopener">voir sur Flickr</a>` : ""}${del ? ` · <button type="button" class="linkish ph-x" data-phdel="${esc(p.img || p.url)}" data-sid="${esc(del)}">Supprimer</button>` : ""}</small>${(() => { const t = tag && tag(p); return t ? qPick(t.cur, t.host, "Étiquette de cette photo") : ""; })()}</figcaption></figure>`).join("")}${photos.length > 1 ? `<button type="button" class="phs-b prev" aria-label="Photo précédente">‹</button><button type="button" class="phs-b next" aria-label="Photo suivante">›</button><span class="phs-n">1 / ${photos.length}</span>` : ""}</div>`;
 }
 export function wirePhotos(root) {
   $$(".phs:not([data-w])", root).forEach((box) => {
@@ -151,7 +151,10 @@ document.addEventListener("click", (ev) => {
 // a tap on a photo shows it big
 document.addEventListener("click", (ev) => {
   const im = ev.target.closest("img.ph[src]"); if (!im || im.closest(".ph-pk")) return;
-  const box = document.createElement("div"); box.className = "lightbox"; box.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}"><button type="button" aria-label="Fermer">×</button>`;
+  // under the photo: the species, the day and the time it was taken (when known)
+  const f = im.closest("figure"), when = f && f.dataset.when, file = f && $("figcaption small", f), sp = im.dataset.alt || im.alt || "";
+  const cap = [sp ? `<b>${esc(sp)}</b>` : "", when ? esc(when) + (/ à \d/.test(when) ? "" : " · heure inconnue") : "", file && file.firstChild && file.firstChild.nodeType === 3 ? esc(file.firstChild.textContent.replace(/ · $/, "")) : ""].filter(Boolean).join(" · ");
+  const box = document.createElement("div"); box.className = "lightbox"; box.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}">${cap ? `<p class="lb-cap">${cap}</p>` : ""}<button type="button" aria-label="Fermer">×</button>`;
   const close = () => { box.remove(); document.removeEventListener("keydown", esc_); };
   const esc_ = (e) => { if (e.key === "Escape") close(); };
   box.addEventListener("click", close); document.addEventListener("keydown", esc_); document.body.appendChild(box);

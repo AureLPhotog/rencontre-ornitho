@@ -241,6 +241,7 @@ table.cmp tr.cur td{color:var(--kf);font-weight:600}
 .lightbox{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain}
 .lightbox button{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:26px;cursor:pointer}
+.lightbox{flex-direction:column;gap:10px}.lb-cap{color:#fff;font-size:15px;text-align:center;margin:0;line-height:1.4}.lb-cap b{font-weight:600}.lightbox img{max-height:calc(100% - 80px)}
 .screen-map .phead{margin-bottom:8px}
 .bigmap{height:calc(100vh - 230px);min-height:340px;border-radius:12px;overflow:hidden;border:1px solid var(--rule);z-index:0}
 .pop{display:flex;flex-direction:column;gap:4px;font-family:var(--f-body)}.pop .pop-n{font-size:14px}.pop small{color:#5D7068;font-size:12px}
