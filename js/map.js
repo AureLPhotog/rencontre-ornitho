@@ -51,6 +51,7 @@ export function mapPicker(el, { lat, lon, others = [], labels = false } = {}, on
       if (Math.floor(p[0] / 60) !== hour) { hour = Math.floor(p[0] / 60); c.bindTooltip(hm(p[0]), { permanent: true, direction: "top", className: "map-lab map-hr" }); }
     });
     pin.setZIndexOffset(1000);
+    if (!pin.options.opacity) map.fitBounds(L().latLngBounds(pts.map((p) => [p[1], p[2]])).pad(0.1), { maxZoom: 15 }); // no point yet: show the day
   }
   return {
     set(la, lo, zoom) { if (la == null || lo == null) return; pin.setLatLng([la, lo]).setOpacity(1); map.setView([la, lo], zoom || Math.max(map.getZoom(), 13)); },

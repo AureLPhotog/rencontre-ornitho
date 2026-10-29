@@ -27,15 +27,27 @@ function placeFields(st) {
     <div class="combo mapq"><input class="field" id="f-mapq" type="search" autocomplete="off" placeholder="Chercher un lieu sur la carte (étang, lieu-dit, commune…)" aria-controls="f-mapsug"><ul id="f-mapsug" class="sug" role="listbox" hidden></ul></div>
     <div class="mapbox" id="f-map"></div>
     <div class="coords"><span id="f-coords">${st.lat != null ? `${st.lat}, ${st.lon}` : "Touche la carte pour placer le point, ou ◎ pour ta position."}</span>
-      <button type="button" class="linkish" id="f-clear" ${st.lat == null ? "hidden" : ""}>effacer</button></div>`;
+      <button type="button" class="linkish" id="f-clear" ${st.lat == null ? "hidden" : ""}>effacer</button></div>
+    <p class="cap" id="f-trk" hidden></p>`;
 }
 function wirePlace(st, onChange) {
-  const show = () => { $("#f-coords").textContent = st.lat != null ? `${st.lat}, ${st.lon}` : "Pas de coordonnées."; $("#f-clear").hidden = st.lat == null; };
+  const show = (when) => { $("#f-coords").textContent = st.lat != null ? `${st.lat}, ${st.lon}${when ? ` · ton téléphone à ${when}` : ""}` : "Pas de coordonnées."; $("#f-clear").hidden = st.lat == null; };
   const others = M.db.lieux.filter((p) => p.lat != null).slice(0, 150);
   const mp = mapPicker($("#f-map"), { lat: st.lat, lon: st.lon, others }, (lat, lon, how) => {
     if (how === "gps-refusé") { toast("Position refusée ou introuvable."); return; }
-    st.lat = lat; st.lon = lon; show(); onChange && onChange("coords");
+    st.lat = lat; st.lon = lon; show(/^trace /.test(how || "") ? how.slice(6) : ""); onChange && onChange("coords");
   });
+  // your track of that day (Vos trajets), read when the date is known, again when it changes
+  const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  const track = async () => {
+    const fd = $("#f-date"), el = $("#f-trk"), d = fd && fd.value; if (!el) return;
+    if (!d) { mp.setTrack && mp.setTrack(null); el.hidden = true; return; }
+    const j = await S.lazyJson(`data/traces/${d.slice(0, 7)}.json`).catch(() => null);
+    if (!fd.isConnected || fd.value !== d) return;
+    const pts = j && j.jours && j.jours[d]; mp.setTrack && mp.setTrack(pts || null); el.hidden = !pts;
+    if (pts) el.textContent = `En bleu : ton trajet du ${fmtShort(d)} (${pts.length} points, de ${hm(pts[0][0])} à ${hm(pts[pts.length - 1][0])}). Touche un point du trajet pour y mettre la coche, l'heure s'affiche.`;
+  };
+  track(); if ($("#f-date")) $("#f-date").addEventListener("change", track);
   $("#f-lieu").addEventListener("change", (e) => {
     st.l = e.target.value.trim();
     const p = M.db.lieux.find((x) => x.nom === st.l);

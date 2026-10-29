@@ -1,5 +1,5 @@
 // Keeps the app itself available offline. The data is cached by the app (localStorage), not here.
-const V = "ro-shell-v126";
+const V = "ro-shell-v127";
 const SHELL = ["./", "index.html", "css/app.css?v=61", "js/app.js", "js/store.js", "js/model.js", "js/form.js", "js/map.js", "js/util.js", "js/export.js", "js/geo.js", "js/lists.js", "js/importer.js", "js/taxo.js", "js/photos.js", "js/dossier.js",
   "icon.svg?v=3", "icon-192.png", "apple-touch-icon.png", "manifest.webmanifest", "vendor/leaflet/leaflet.css", "vendor/leaflet/leaflet.js", "vendor/leaflet/images/marker-icon.png", "vendor/leaflet/images/marker-icon-2x.png", "vendor/leaflet/images/marker-shadow.png", "vendor/leaflet/images/layers.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
