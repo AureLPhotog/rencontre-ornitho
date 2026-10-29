@@ -61,6 +61,12 @@ export function distKm(a, b) {
   const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// a country list (Espagne, Guyane…) or a part of one (La Palma, inside Espagne: its own country is that of its
+// parent, written in « pays », and its area a box [south, west, north, east])
+export const paysOf = (l) => (l && l.type === "pays" ? l.pays || l.nom : null);
+export const inBox = (l, t) => !l.bbox || (!!t && t.lat != null && t.lat >= l.bbox[0] && t.lat <= l.bbox[2] && t.lon >= l.bbox[1] && t.lon <= l.bbox[3]);
+// the country lists a sighting abroad goes to: the country's, and the part of it whose box holds its point
+export const countryLists = (listes, p, t) => listes.filter((l) => l.type === "pays" && p && norm(paysOf(l)) === norm(p) && inBox(l, t));
 // is a point outside a list's area? returns a short reason, or "" when it fits (or when nothing can be said)
 export function outsideOf(l, w, pt, date) {
   if (!l) return "";
@@ -68,7 +74,7 @@ export function outsideOf(l, w, pt, date) {
   if (fixed && pt && pt.lat != null) { const d = distKm(fixed, pt); return d > (l.rayon || 300) / 1000 ? `point à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${fixed.nom || l.nom}` : ""; }
   if (!w) return "";
   if (l.pays === "France") return w.fr ? "" : w.pays ? `point en ${w.pays}` : "point hors de France";
-  if (l.type === "pays") return w.fr ? "point en France" : w.pays && norm(w.pays) !== norm(l.nom) ? `point en ${w.pays}` : "";
+  if (l.type === "pays") return w.fr ? "point en France" : w.pays && norm(w.pays) !== norm(paysOf(l)) ? `point en ${w.pays}` : pt && !inBox(l, pt) ? `point hors de ${l.nom}` : "";
   if (l.deps || l.communes) {
     if (!w.fr) return w.pays ? `point en ${w.pays}` : "point hors de France";
     if (!w.dep) return "";

@@ -2,7 +2,7 @@
 import { $, $$, esc, norm, cap, uid, plural, fmtShort, isFrance, yearOf, toast, srcName } from "./util.js";
 import { S, M, go } from "./app.js";
 import { PHOTO_FR, LIFERS, VU } from "./model.js";
-import { deptFromPlace, communeFromPlace, deptByName, listCovers, placeAt, distKm } from "./geo.js";
+import { deptFromPlace, communeFromPlace, deptByName, listCovers, placeAt, distKm, countryLists } from "./geo.js";
 import { loadXlsx } from "./export.js";
 import { makeMatcher } from "./taxo.js";
 
@@ -100,7 +100,7 @@ function propose(obs, source, target) {
       const f = placeAt(l, o.d), first = (l.lieux || []).map((x) => x.depuis).filter(Boolean).sort()[0];
       if (f && (!first || o.d >= first) && distKm(f, o) <= (l.rayon || 300) / 1000) keep(l.cle + "|" + o.sid, { ...o, l: f.nom || o.l, lat: f.lat, lon: f.lon });
     });
-    else M.listes.filter((l) => l.type === "pays" && norm(l.nom) === norm(o.p)).forEach((l) => keep(l.cle + "|" + o.sid, o));
+    else countryLists(M.listes, o.p, o).forEach((l) => keep(l.cle + "|" + o.sid, o));
     keep(VU + "|" + (fr ? "fr" : "x") + "|" + o.sid, o);
   }
   for (const [k, o] of byKey) {

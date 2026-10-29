@@ -11,7 +11,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
-import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit, lieuOuessant, vagueName } from "./geo.js";
+import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit, lieuOuessant, vagueName, countryLists } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 const zoneLists = () => {
@@ -220,7 +220,7 @@ export function renderAdd(view, q) {
     $("#f-known").innerHTML = sid ? (m ? "Déjà : " + M.listes.filter((l) => m.has(l.cle)).map((l) => { const t = m.get(l.cle)[0]; return `${esc(l.nom)}${t.n ? " n°" + t.n : ""}${t.d ? " (" + fmtShort(t.d) + ")" : ""}`; }).join(" · ") : "Jamais cochée : ce sera une première.") : st.newName ? `Nouvelle espèce « ${esc(st.newName)} » : elle sera ajoutée au référentiel.` : "";
     if (rule) $("#f-known").insertAdjacentHTML("beforeend", `<br><span class="miss">⚠ ${esc(rule)}</span>`);
     if (!sid && !st.newName) { $("#f-targets").innerHTML = '<p class="cap">Choisis d\'abord l\'espèce.</p>'; return; }
-    const { list } = suggest(M, sid, { photo: st.photo, zone: fr ? st.zone : null, country: st.p, date: st.d });
+    const { list } = suggest(M, sid, { photo: st.photo, zone: fr ? st.zone : null, country: st.p, date: st.d, pt: st });
     list.forEach((x) => { if (st.picks[x.cle] && st.picks[x.cle].touched) { x.checked = st.picks[x.cle].checked; if (st.picks[x.cle].num) x.num = st.picks[x.cle].num; } });
     // GPS check: a tick placed outside the list's area is unticked and flagged
     list.forEach((x) => { const l = M.liste.get(x.cle); const out = st.lat != null ? outsideOf(l, st.where, st, st.d) : ""; x.out = out; if (out && !(st.picks[x.cle] && st.picks[x.cle].touched)) x.checked = false; });
@@ -340,14 +340,15 @@ export function renderEdit(view, cle, id) {
     }
     if (st.l && st.lat != null && ("l" in patch || "lat" in patch)) ops.push({ kind: "add-lieu", lieu: { nom: st.l.trim(), lat: st.lat, lon: st.lon } });
     // a sighting abroad in a country that has its list (Suisse, Espagne, Guyane…): the species goes in that list too
-    const fin = { ...t0, ...ops[0].patch }, pl = !isFrance(fin.p) && cle !== "vu" ? M.listes.find((x) => x.type === "pays" && norm(x.nom) === norm(fin.p)) : null;
-    if (pl && pl.cle !== cle && !M.inList(fin.e, pl.cle)) {
+    const fin = { ...t0, ...ops[0].patch }, added = [];
+    if (!isFrance(fin.p) && cle !== "vu") for (const pl of countryLists(M.listes, fin.p, fin)) {
+      if (pl.cle === cle || M.inList(fin.e, pl.cle)) continue;
       const tick = { id: `${pl.cle}-${Date.now().toString(36)}`, e: fin.e }; ["d", "h", "sh", "l", "lat", "lon", "p", "t", "sd", "sl"].forEach((k) => { if (fin[k] != null && fin[k] !== "") tick[k] = fin[k]; });
       if (pl.numerotee) tick.n = M.nextNum(pl.cle);
-      ops.push({ kind: "add-tick", cle: pl.cle, tick });
+      ops.push({ kind: "add-tick", cle: pl.cle, tick }); added.push(pl.nom);
     }
-    S.apply(ops, `Modification : ${M.name(t0.e)}${"e" in patch ? " → " + M.name(patch.e) : ""} (${l.nom})${pl && ops.some((o) => o.kind === "add-tick") ? ", ajoutée à " + pl.nom : ""}`);
-    toast(pl && ops.some((o) => o.kind === "add-tick") ? `Modifié, et ajoutée à ${pl.nom}.` : "Modifié."); history.back();
+    S.apply(ops, `Modification : ${M.name(t0.e)}${"e" in patch ? " → " + M.name(patch.e) : ""} (${l.nom})${added.length ? ", ajoutée à " + added.join(" et ") : ""}`);
+    toast(added.length ? `Modifié, et ajoutée à ${added.join(" et ")}.` : "Modifié."); history.back();
   });
   const del = $("#f-del");
   del.addEventListener("click", () => {

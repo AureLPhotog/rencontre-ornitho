@@ -1,6 +1,6 @@
 // Everything the screens show is derived here from the raw database (lists, species, ticks).
 import { norm, isFrance, yearOf, distanceInText, maxErrors, byFr, cmp } from "./util.js";
-import { deptFromPlace, communeFromPlace, placeAt, distKm, listCovers } from "./geo.js";
+import { deptFromPlace, communeFromPlace, placeAt, distKm, listCovers, paysOf, inBox, countryLists } from "./geo.js";
 
 export const PHOTO_FR = "photo-france", LIFERS = "lifers", VU = "vu";
 const byDate = (a, b) => ((a.d ? 0 : 1) - (b.d ? 0 : 1)) || cmp(a.d || "", b.d || "") || ((a.n || 0) - (b.n || 0));
@@ -205,7 +205,8 @@ export function buildModel(db) {
       if (l.lieux && t.lat != null) { const f = placeAt(l, t.d); const d = f ? distKm(f, t) : 0; if (d > (l.rayon || 300) / 1000) why = `à ${d < 10 ? d.toFixed(1) : Math.round(d)} km de ${f.nom || l.nom}`; }
       else if (l.deps && t.l) { const dep = deptFromPlace(t.l); if (dep && !l.deps.includes(dep)) why = `lieu dans le ${dep}`; }
       else if (l.communes && t.l) { const c = communeFromPlace(t.l); if (c && !l.communes.some((x) => norm(x) === norm(c))) why = `lieu à ${c}`; }
-      else if (l.type === "pays" && t.p && norm(t.p) !== norm(l.nom)) why = `pays : ${t.p}`;
+      else if (l.type === "pays" && t.p && norm(t.p) !== norm(paysOf(l))) why = `pays : ${t.p}`;
+      else if (l.bbox && t.lat != null && !inBox(l, t)) why = `point hors de ${l.nom}`;
       if (!isFrance(t.p) && (l.deps || l.communes || l.pays === "France")) why = `pays : ${t.p}`;
       if (why) out.outside.push({ t: { ...t, cle: l.cle }, why });
     }
@@ -291,8 +292,10 @@ export function buildModel(db) {
     const paysL = M.listes.filter((l) => l.type === "pays"), seenP = new Set();
     if (paysL.length) for (const t of M.ticks.slice().sort(byDate)) {
       if (isFrance(t.p) || t.cle === VU || (M.liste.get(t.cle) || {}).type === "pays") continue;
-      const pl = paysL.find((l) => norm(l.nom) === norm(t.p)); if (!pl || M.inList(t.e, pl.cle)) continue;
-      const k = t.e + "|" + pl.cle; if (seenP.has(k)) continue; seenP.add(k); out.paysMissing.push({ t, pays: pl.cle });
+      for (const pl of countryLists(paysL, t.p, t)) {
+        if (M.inList(t.e, pl.cle)) continue;
+        const k = t.e + "|" + pl.cle; if (seenP.has(k)) continue; seenP.add(k); out.paysMissing.push({ t, pays: pl.cle });
+      }
     }
     // year-list ticks dated in another year
     out.yearWrong = M.ticks.filter((t) => t.d && !M.sameYearOk(t, t.d));
@@ -335,7 +338,7 @@ export function buildModel(db) {
 
 // which lists a new sighting should go to, and with which number
 // photo: photographed?  zone: the most precise place list chosen (or null)  country: "" for France
-export function suggest(M, sid, { photo, zone, country, date }) {
+export function suggest(M, sid, { photo, zone, country, date, pt }) {
   const fr = isFrance(country), out = [], year = yearOf(date);
   const known = sid && M.bySp.has(sid);
   const has = (cle) => !!sid && M.inList(sid, cle);
@@ -351,8 +354,7 @@ export function suggest(M, sid, { photo, zone, country, date }) {
     }
   }
   if (!fr) {
-    const cl = M.listes.find((l) => l.type === "pays" && country && l.nom.toLowerCase() === String(country).toLowerCase());
-    if (cl) add(cl.cle, has(cl.cle) ? "déjà cochée" : "nouvelle", !has(cl.cle));
+    for (const cl of countryLists(M.listes, country, pt)) add(cl.cle, has(cl.cle) ? "déjà cochée" : "nouvelle", !has(cl.cle));
   }
   if (year) {
     const cle = "yl" + year, l = M.liste.get(cle);

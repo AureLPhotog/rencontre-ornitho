@@ -8,7 +8,7 @@ import { photoBox, flickrKey, setFlickrKey } from "./photos.js";
 import { exportXlsx, exportJson } from "./export.js";
 import { screenLists } from "./lists.js";
 import { screenImport } from "./importer.js";
-import { whereIs, outsideOf, nameAt, deptFromPlace, communeFromPlace, listCovers, onOuessant, distKm } from "./geo.js";
+import { whereIs, outsideOf, nameAt, deptFromPlace, communeFromPlace, listCovers, onOuessant, distKm, countryLists } from "./geo.js";
 import { readFolder, showFolder } from "./dossier.js";
 
 export const S = new Store();
@@ -182,6 +182,8 @@ function screenHome() {
   const liferAll = new Set([...M.speciesOf(LIFERS).map((t) => t.e), ...vu.ab.map((t) => t.e)]).size;
   const zones = M.listes.filter((l) => l.type === "zone" || l.type === "lieu").map((l) => l.cle);
   const others = M.listes.filter((l) => !["annee", "vu", "zone", "lieu", "photo"].includes(l.type));
+  // the trips: each country, followed by its parts (La Palma under Espagne)
+  const voyages = (ls) => { const out = [], put = (l) => { out.push(l); ls.filter((x) => x.dans === l.cle).forEach(put); }; ls.filter((l) => !ls.some((x) => x.cle === l.dans)).forEach(put); return out; };
   const guy = M.speciesOf("guyane"), gt = (k) => guy.filter((t) => norm(t.t) === k).length;
   // this year against the same day of the other years
   const today = todayIso(), y0 = +today.slice(0, 4), md = today.slice(5);
@@ -196,7 +198,7 @@ function screenHome() {
       ${lrow(PHOTO_FR, 1)}${lrow("aura", 2)}${lrow("rhone", 3)}${lrow("jardin", 4)}${lrow("bureau", 4)}
       ${["ouessant", ...zones.filter((z) => !["aura", "rhone", "jardin", "bureau", "ouessant"].includes(z))].map((z) => lrow(z, 2)).join("")}
     </section>
-    ${others.length ? `<section class="lgroup"><h3 class="minor">Voyages</h3>${others.map((l) => lrow(l.cle, 0, l.cle === "guyane" ? `${c(l.cle) - gt("vu") - gt("entendu")} en photo · ${gt("vu")} vues · ${gt("entendu")} entendues` : null)).join("")}</section>` : ""}
+    ${others.length ? `<section class="lgroup"><h3 class="minor">Voyages</h3>${voyages(others).map((l) => lrow(l.cle, M.chain(l.cle).length - 1, l.cle === "guyane" ? `${c(l.cle) - gt("vu") - gt("entendu")} en photo · ${gt("vu")} vues · ${gt("entendu")} entendues` : null)).join("")}</section>` : ""}
     <section class="lgroup tophoto"><h3 class="minor">À photographier</h3><div class="tp">
       <a href="#/liste/vu?f=fr"><b>${vu.fr.length}</b><span>en France<small>vues / entendues</small></span></a>
       <a href="#/liste/vu?f=ab"><b>${vu.ab.length}</b><span>à l'étranger<small>jamais en photo</small></span></a>
@@ -450,7 +452,7 @@ function placeGroups() {
 // then the rest of France, then the country lists (Guyane, Espagne…), then the other countries
 function placeZone(x) {
   const fr = x.ts.filter((t) => isFrance(t.p)).length >= x.ts.length / 2;
-  if (!fr) { const c = (x.ts.find((t) => !isFrance(t.p)) || {}).p || "Étranger"; const pl = M.listes.find((l) => l.type === "pays" && norm(l.nom) === norm(c)); return pl ? pl.cle : "pays:" + c; }
+  if (!fr) { const c = (x.ts.find((t) => !isFrance(t.p)) || {}).p || "Étranger"; const pl = countryLists(M.listes, c, x.ts.find((t) => t.lat != null)).sort((a, b) => !!b.bbox - !!a.bbox)[0]; return pl ? pl.cle : "pays:" + c; }
   const tops = M.listes.filter((l) => l.dans === PHOTO_FR && (l.deps || l.communes || l.lieux));
   const dep = deptFromPlace(x.l), commune = communeFromPlace(x.l);
   for (const z of tops) {
