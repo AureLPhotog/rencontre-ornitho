@@ -268,9 +268,19 @@ export function buildModel(db) {
     // a zone list (region, department, commune) starts with the first photo taken inside it: the earliest dated
     // photo tick of any list (Photo France, Lifers, year lists, sub-zones, garden…) whose place is in the zone
     out.zoneFirst = [];
-    const zones = M.listes.filter((l) => l.deps || l.communes);
+    // the same for Lifers photo (your first photo anywhere: a trip list, a year list…) and Photo France (in France)
+    // and for a country that has parts (Espagne, with La Palma): its first date is that of its parts at the latest
+    const zones = [...M.listes.filter((l) => l.deps || l.communes || (l.type === "pays" && M.listes.some((x) => x.dans === l.cle))), M.liste.get(LIFERS), M.liste.get(PHOTO_FR)].filter(Boolean);
     const inZone = (z, t) => {
       if (t.cle === z.cle) return false;
+      // for these two, only a real photo: a tick of a photo list (zones), or one that has its photo (a year list or a
+      // trip list also holds sightings without photo: Faune-France, eBird…)
+      if (z.cle === LIFERS || z.cle === PHOTO_FR) {
+        if ((M.esp.get(t.e) || {}).compte || (z.cle === PHOTO_FR && !isFrance(t.p))) return false;
+        const lt = (M.liste.get(t.cle) || {}).type;
+        if (t.nph) return false; // « pas de photo de cette coche »
+        return lt === "photo" || lt === "zone" || lt === "lieu" || !!t.ph || M.photosFor(t).length > 0;
+      }
       if (M.chain(t.cle).includes(z.cle)) return true; // a sub-list of the zone (Rhône in AURA, Jardin in Rhône)
       if (!t.l || !isFrance(t.p)) return false;
       const dep = deptFromPlace(t.l), commune = communeFromPlace(t.l);
@@ -287,6 +297,13 @@ export function buildModel(db) {
         else if (zt.d && f.d < zt.d && zt.vf !== zt.d) out.zoneFirst.push({ zone: z.cle, e, first: f, zt: { ...zt, cle: z.cle } });
       }
     }
+    // the lists of one species later than the same photo (a lifer and its Photo France, a country list…): one row
+    const rows = [];
+    for (const y of out.zoneFirst) {
+      const x = rows.find((x) => x.e === y.e && x.first === y.first && !!x.zt === !!y.zt);
+      if (x) (x.also = x.also || []).push({ zone: y.zone, zt: y.zt }); else rows.push(y);
+    }
+    out.zoneFirst = rows;
     // a sighting abroad in a country that has its list (Suisse, Espagne, Guyane…) but the species is not in that list
     out.paysMissing = [];
     const paysL = M.listes.filter((l) => l.type === "pays"), seenP = new Set();
