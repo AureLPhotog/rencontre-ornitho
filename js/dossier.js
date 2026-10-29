@@ -22,14 +22,14 @@ function speciesOf(file, meta) {
 
 // read every photo (only the start of the file: the metadata), then one proposal per species
 export async function readFolder(files, l, progress) {
-  const photos = [], noSp = [], noDate = [];
+  const photos = [], noSp = [], noDate = [], unknown = [];
   files = files.filter((f) => /\.jpe?g$/i.test(f.name));
   for (let i = 0; i < files.length; i++) {
     progress(`Lecture des photos… ${i + 1} / ${files.length}`);
     const f = files[i]; let meta;
     try { meta = readMeta(await f.slice(0, 1 << 19).arrayBuffer()); } catch (_) { continue; }
     const sps = speciesOf(f, meta);
-    if (!sps.length) { noSp.push(f.name); continue; }
+    if (!sps.length) { noSp.push(f.name); if (meta.d) unknown.push({ f, sid: null, ...meta }); continue; }
     if (!meta.d) { noDate.push(f.name); continue; }
     sps.forEach((sid) => photos.push({ f, sid, ...meta }));
   }
@@ -49,8 +49,9 @@ export async function readFolder(files, l, progress) {
     }
     const t = M.tick(sid, l.cle);
     if (!pick) { kept.push({ sid, why: l.type === "annee" && !cands.length ? `pas de photo en ${l.annee}` : `hors de ${l.nom} (${why})` }); continue; }
-    // the series: every photo of the species that day, to choose the one of the tick (the earliest by default)
-    const day = (d) => ps.filter((p) => p.d === d);
+    // the series: the photos of that day in the order they were taken, those of the species and those whose species
+    // was not recognized (the other shots of the same burst), to choose the one of the tick (the earliest by default)
+    const day = (d) => [...ps.filter((p) => p.d === d), ...unknown.filter((p) => p.d === d)].sort((a, b) => (a.h || "").localeCompare(b.h || "") || a.f.name.localeCompare(b.f.name));
     // the same observation already has its photo in another list (chosen in the app): it stays the photo, unless you pick one
     const obsPh = (d) => M.ticks.find((y) => y.e === sid && y.d === d && y.ph && y.cle !== l.cle) || null;
     if (!t) { props.push({ kind: "add", sid, p: pick, serie: day(pick.d), count: ps.length, noGps: pick.lat == null && needsArea, obs: obsPh(pick.d) }); continue; }
@@ -73,7 +74,7 @@ function viewSerie(x, onPick) {
   let i = Math.max(0, x.serie.indexOf(x.p));
   const box = document.createElement("div"); box.className = "lightbox serview";
   box.innerHTML = `<img alt=""><div class="sv-bar"><button type="button" class="sv-prev" aria-label="Photo précédente">‹</button><span class="sv-n"></span><button type="button" class="sv-next" aria-label="Photo suivante">›</button></div><div class="sv-act"><button type="button" class="btn btn-primary sv-pick">Choisir cette photo</button><button type="button" class="btn sv-close">Fermer</button></div>`;
-  const show = () => { const p = x.serie[i]; $("img", box).src = urlOf(p); $(".sv-n", box).textContent = `${i + 1} / ${x.serie.length} · ${p.h || ""} · ${p.f.name}${p === x.p ? " · choisie" : ""}`; $(".sv-pick", box).textContent = p === x.p ? "Garder cette photo" : "Choisir cette photo"; };
+  const show = () => { const p = x.serie[i]; $("img", box).src = urlOf(p); $(".sv-n", box).textContent = `${i + 1} / ${x.serie.length} · ${p.h || ""} · ${p.f.name}${p.sid ? "" : " · espèce non reconnue"}${p === x.p ? " · choisie" : ""}`; $(".sv-pick", box).textContent = p === x.p ? "Garder cette photo" : "Choisir cette photo"; };
   const close = () => { box.remove(); document.removeEventListener("keydown", key); };
   const move = (d) => { i = (i + d + x.serie.length) % x.serie.length; show(); };
   const key = (ev) => { if (ev.key === "Escape") close(); if (ev.key === "ArrowLeft") move(-1); if (ev.key === "ArrowRight") move(1); };
