@@ -36,9 +36,25 @@ export function mapPicker(el, { lat, lon, others = [], labels = false } = {}, on
       () => { onPick && onPick(null, null, "gps-refusé"); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   }
   setTimeout(() => { if (MAPS.has(map)) map.invalidateSize(); }, 60);
+  // your day's track ([[minutes since midnight, lat, lon], ...]): the line, a dot per recorded point (touch one to put
+  // the pin exactly there, its time is given), the time written at the first point of each hour
+  let trk = null;
+  function setTrack(pts) {
+    if (trk) { trk.remove(); trk = null; } if (!pts || !pts.length || !MAPS.has(map)) return;
+    const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`, r = L().canvas({ padding: 0.3 });
+    trk = L().layerGroup().addTo(map);
+    L().polyline(pts.map((p) => [p[1], p[2]]), { color: "#0A7895", weight: 3, opacity: 0.55, renderer: r, interactive: false }).addTo(trk);
+    let hour = -1;
+    pts.forEach((p) => {
+      const c = L().circleMarker([p[1], p[2]], { radius: 4, color: "#0A7895", weight: 1, fillColor: "#fff", fillOpacity: 1, renderer: r, bubblingMouseEvents: false }).addTo(trk);
+      c.on("click", () => pick(L().latLng(p[1], p[2]), "trace " + hm(p[0])));
+      if (Math.floor(p[0] / 60) !== hour) { hour = Math.floor(p[0] / 60); c.bindTooltip(hm(p[0]), { permanent: true, direction: "top", className: "map-lab map-hr" }); }
+    });
+    pin.setZIndexOffset(1000);
+  }
   return {
     set(la, lo, zoom) { if (la == null || lo == null) return; pin.setLatLng([la, lo]).setOpacity(1); map.setView([la, lo], zoom || Math.max(map.getZoom(), 13)); },
-    locate, map, destroy() { map.remove(); },
+    setTrack, locate, map, destroy() { map.remove(); },
   };
 }
 

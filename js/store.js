@@ -94,6 +94,7 @@ export class Store {
     this.files = {};                     // path -> { sha, text } as last read from GitHub
     this.commit = null;                  // commit those files come from
     this.images = {};                    // image path -> blob sha (the photos are fetched only when shown)
+    this.lazy = {};                      // data/traces/*.json -> blob sha: big files read only when a screen needs one
     this.pending = store(PENDING_KEY) || [];
     this.undos = store(UNDO_KEY) || [];
     this.listeners = new Set(); this.state = "idle"; this.error = null; this.flushing = null;
@@ -114,12 +115,12 @@ export class Store {
     try { c = await idbGet(CACHE_KEY); } catch (e) { console.warn("IndexedDB", e); }
     let old = false;
     if (!c) { c = store(CACHE_KEY); old = !!c; } // the copy kept by the older versions of the app: moved to IndexedDB
-    if (c && c.files) { this.files = c.files; this.commit = c.commit || null; this.images = c.images || {}; }
+    if (c && c.files) { this.files = c.files; this.commit = c.commit || null; this.images = c.images || {}; this.lazy = c.lazy || {}; }
     if (old) this._saveCache();
   }
   // the copy of the base: IndexedDB (no size limit to speak of); localStorage only if IndexedDB is not there
   _saveCache() {
-    const c = { files: this.files, commit: this.commit, images: this.images };
+    const c = { files: this.files, commit: this.commit, images: this.images, lazy: this.lazy };
     this._cacheW = (this._cacheW || Promise.resolve()).then(() => idbSet(CACHE_KEY, c)).then(() => unstore(CACHE_KEY))
       .catch((e) => { console.warn("IndexedDB", e); store(CACHE_KEY, c); });
     return this._cacheW;
@@ -163,22 +164,22 @@ export class Store {
   }
   async _tree(head) {
     const tree = await this.gh("GET", this.repoPath(`/git/trees/${head.tree}?recursive=1`));
-    const blobs = {}, images = {};
-    (tree.tree || []).forEach((e) => { if (e.type !== "blob") return; if (/^data\/.+\.json$/.test(e.path)) blobs[e.path] = e.sha; else if (/^data\/photos\/.+\.jpe?g$/i.test(e.path)) images[e.path] = e.sha; });
-    return { blobs, images };
+    const blobs = {}, images = {}, lazy = {};
+    (tree.tree || []).forEach((e) => { if (e.type !== "blob") return; if (/^data\/traces\/.+\.json$/.test(e.path)) lazy[e.path] = e.sha; else if (/^data\/.+\.json$/.test(e.path)) blobs[e.path] = e.sha; else if (/^data\/photos\/.+\.jpe?g$/i.test(e.path)) images[e.path] = e.sha; });
+    return { blobs, images, lazy };
   }
   async _blob(sha) { const b = await this.gh("GET", this.repoPath(`/git/blobs/${sha}`)); return b64decode(b.content); }
   // bring the server copy up to date with the files of `head` (only the files that changed are read, a few at a time);
   // says whether anything changed
   async _pull(head) {
-    const { blobs, images } = await this._tree(head);
+    const { blobs, images, lazy } = await this._tree(head);
     const next = {}, todo = [];
     for (const [path, sha] of Object.entries(blobs)) { if (this.files[path] && this.files[path].sha === sha) next[path] = this.files[path]; else todo.push([path, sha]); }
     let i = 0; const worker = async () => { while (i < todo.length) { const [path, sha] = todo[i++]; next[path] = { sha, text: await this._blob(sha) }; } };
     await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
     const gone = Object.keys(this.files).some((p) => !next[p]);
     const imgChanged = Object.keys(images).length !== Object.keys(this.images).length || Object.entries(images).some(([p, s]) => this.images[p] !== s);
-    this.files = next; this.commit = head.commit; this.images = images;
+    this.files = next; this.commit = head.commit; this.images = images; this.lazy = lazy;
     return !!todo.length || gone || imgChanged;
   }
 
@@ -256,6 +257,20 @@ export class Store {
     this.undos = this.undos.slice(0, -1); store(UNDO_KEY, this.undos);
     this.apply(u.ops, `Annulé : ${u.label}`, { undo: true });
     return u;
+  }
+  // a big data file read only when needed (your day's track): read once from GitHub, then kept in the browser
+  async lazyJson(path) {
+    if (!this.lazy[path] && !this._lzTried && this.ready) { this._lzTried = true; try { this.lazy = (await this._tree(await this._head())).lazy; } catch (_) {} }
+    const sha = this.lazy[path]; if (!sha) return null;
+    this._lz = this._lz || new Map();
+    if (!this._lz.has(sha)) this._lz.set(sha, (async () => {
+      const key = `https://ro-lazy.invalid/${sha}.json`;
+      let cache = null; try { cache = await caches.open("ro-photos-v1"); } catch (_) {}
+      let text = cache ? await cache.match(key).then((r) => (r ? r.text() : null)).catch(() => null) : null;
+      if (text == null) { text = await this._blob(sha); if (cache) cache.put(key, new Response(text, { headers: { "Content-Type": "application/json" } })).catch(() => {}); }
+      return JSON.parse(text);
+    })().catch((e) => { this._lz.delete(sha); throw e; }));
+    return this._lz.get(sha);
   }
   // a photo of the private repository, as an object URL: read once from GitHub, then kept in the browser
   async imageUrl(path) {

@@ -1106,13 +1106,23 @@ function screenTodo() {
     const others = kind === "trj" ? x.cands.map((p, k) => ({ lat: p.lat, lon: p.lon, nom: String(k + 1) }))
       : [{ lat: x.pt[1], lon: x.pt[2], nom: `téléphone ${x.pt[0]}` }, { lat: x.main.lat, lon: x.main.lon, nom: "GPS actuel" }];
     const start = kind === "trj" ? x.cands[0] : { lat: x.pt[1], lon: x.pt[2] };
-    box.innerHTML = `<div class="minimap tall"></div><p class="cap fix-pt">Touche la carte ou déplace l'épingle sur le bon endroit (${kind === "far" ? "les points orange : la position de ton téléphone et le GPS actuel" : "les points orange : les propositions, avec leur numéro"} ; ◎ : ta position).</p><p class="trj-fix-b"><button class="btn btn-primary" disabled>Valider ce point</button> <button class="btn" type="button">Fermer</button></p>`;
+    const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    box.innerHTML = `<div class="minimap tall"></div><p class="cap fix-trk">Chargement de ton trajet de ce jour-là…</p><p class="cap fix-pt">Touche la carte ou déplace l'épingle sur le bon endroit (${kind === "far" ? "les points orange : la position de ton téléphone et le GPS actuel" : "les points orange : les propositions, avec leur numéro"} ; ◎ : ta position).</p><p class="trj-fix-b"><button class="btn btn-primary" disabled>Valider ce point</button> <button class="btn" type="button">Fermer</button></p>`;
     const [ok, close] = $$("button", box), info = $(".fix-pt", box); let pt = null;
     close.addEventListener("click", () => { box.hidden = true; });
-    mapPicker($(".minimap", box), { ...(start ? { lat: start.lat, lon: start.lon } : {}), others, labels: true }, async (lat, lon) => {
-      if (lat == null) return; pt = { lat, lon, n: null }; ok.disabled = false; info.textContent = `Point choisi : ${lat}, ${lon}`;
-      const n = await nameAt(lat, lon).catch(() => null); if (pt && pt.lat === lat && pt.lon === lon) { pt.n = n; if (n && n.l) info.textContent = `Point choisi : ${n.l}`; }
+    const mp = mapPicker($(".minimap", box), { ...(start ? { lat: start.lat, lon: start.lon } : {}), others, labels: true }, async (lat, lon, how) => {
+      if (lat == null) return; pt = { lat, lon, n: null }; ok.disabled = false;
+      const when = /^trace /.test(how || "") ? ` (ton téléphone à ${how.slice(6)})` : "";
+      info.textContent = `Point choisi : ${lat}, ${lon}${when}`;
+      const n = await nameAt(lat, lon).catch(() => null); if (pt && pt.lat === lat && pt.lon === lon) { pt.n = n; if (n && n.l) info.textContent = `Point choisi : ${n.l}${when}`; }
     });
+    // your track of that day (read only now: one file per month)
+    const tinfo = $(".fix-trk", box);
+    S.lazyJson(`data/traces/${x.main.d.slice(0, 7)}.json`).then((j) => {
+      const pts = j && j.jours && j.jours[x.main.d];
+      if (pts && pts.length) { mp.setTrack(pts); tinfo.textContent = `Ton trajet de ce jour-là en bleu (${pts.length} points, de ${hm(pts[0][0])} à ${hm(pts[pts.length - 1][0])}) : touche un point pour le prendre, l'heure s'affiche.`; }
+      else tinfo.textContent = "Pas de trajet enregistré par ton téléphone ce jour-là.";
+    }).catch(() => { tinfo.textContent = "Ton trajet de ce jour-là n'a pas pu être chargé (pas de réseau ?)."; });
     ok.addEventListener("click", async () => {
       if (!pt) return; ok.disabled = true; ok.textContent = "…";
       const n = pt.n || await nameAt(pt.lat, pt.lon).catch(() => null);
