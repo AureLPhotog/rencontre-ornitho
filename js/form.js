@@ -11,6 +11,7 @@ import { $, $$, esc, norm, cap, slug, uid, plural, todayIso, yearOf, isFrance, f
 import { S, M, go, UI, saveUI } from "./app.js";
 import { suggest, PHOTO_FR } from "./model.js";
 import { mapPicker, isOuessant } from "./map.js";
+import { readMeta, shrink, flickrPhoto, speciesOfKeyword } from "./photos.js";
 import { whereIs, listCovers, placeAt, distKm, outsideOf, lieuDit, lieuOuessant, vagueName, countryLists } from "./geo.js";
 
 const countries = () => [...new Set(M.ticks.map((t) => t.p).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
@@ -35,8 +36,10 @@ function wirePlace(st, onChange) {
   const others = M.db.lieux.filter((p) => p.lat != null).slice(0, 150);
   const mp = mapPicker($("#f-map"), { lat: st.lat, lon: st.lon, others }, (lat, lon, how) => {
     if (how === "gps-refusé") { toast("Position refusée ou introuvable."); return; }
-    st.lat = lat; st.lon = lon; show(/^trace /.test(how || "") ? how.slice(6) : ""); onChange && onChange("coords");
+    st.lat = lat; st.lon = lon; st.ptSrc = null; show(/^trace /.test(how || "") ? how.slice(6) : ""); onChange && onChange("coords");
   });
+  // a point put by the app (the photo's GPS, your phone at the photo's time): same as a tap, with where it comes from
+  mp.place = (lat, lon, src, when) => { st.lat = lat; st.lon = lon; mp.set(lat, lon, 15); st.ptSrc = src; show(when || ""); onChange && onChange("coords"); };
   // your track of that day (Vos trajets), read when the date is known, again when it changes
   const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   const track = async () => {
@@ -51,7 +54,7 @@ function wirePlace(st, onChange) {
   $("#f-lieu").addEventListener("change", (e) => {
     st.l = e.target.value.trim();
     const p = M.db.lieux.find((x) => x.nom === st.l);
-    if (p && p.lat != null) { st.lat = p.lat; st.lon = p.lon; if (p.p) st.p = p.p; mp.set(p.lat, p.lon, 14); show(); onChange && onChange("lieu"); }
+    if (p && p.lat != null) { st.lat = p.lat; st.lon = p.lon; st.ptSrc = null; if (p.p) st.p = p.p; mp.set(p.lat, p.lon, 14); show(); onChange && onChange("lieu"); }
   });
   $("#f-lieu").addEventListener("input", (e) => { st.l = e.target.value; });
   $("#f-clear").addEventListener("click", () => { st.lat = st.lon = null; show(); });
@@ -120,6 +123,10 @@ export function renderAdd(view, q) {
       <p class="cap" id="f-known"></p>
       <div class="seg wide" role="group" aria-label="Photo"><button type="button" data-photo="1">Photographiée</button><button type="button" data-photo="0">Vue ou entendue</button></div>
       <div class="qrow" id="f-qrow"><span class="cap">Étiquette de la photo de la coche</span><div class="qpick" role="group" aria-label="Étiquette de la photo">${QUALITES.map((x) => `<button type="button" class="qtag" style="--c:${x.c}" data-fq="${esc(x.v)}">${x.court}</button>`).join("")}</div></div>
+      <div class="phadd" id="f-phadd"><span class="lab">La photo <small>(facultatif) : la coche prend sa date, et le point est mis où était ton téléphone à son heure</small></span>
+        <div class="row"><label class="btn">📷 Choisir sur l'appareil<input type="file" accept="image/jpeg,image/*" id="f-phfile" hidden></label></div>
+        <div class="row"><input class="field" type="url" id="f-phurl" placeholder="ou lien Flickr (page de la photo, ou lien direct de l’image)"><button type="button" class="btn" id="f-phgo">Lire</button></div>
+        <div id="f-phprev"></div><p class="msg" id="f-phmsg"></p></div>
       <div class="row2"><label>Date<input class="field" type="date" id="f-date" value="${esc(st.d)}" max="${todayIso()}"></label>
         <label>Pays<input class="field" id="f-pays" list="dl-pays" placeholder="France" value="${esc(st.p)}"></label></div>
       <datalist id="dl-pays">${["France", ...countries()].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
@@ -192,6 +199,60 @@ export function renderAdd(view, q) {
     } else if (w && w.pays) { st.p = w.pays; $("#f-pays").value = w.pays; const own = ownPlaceNear(at); if (free() && (own || w.commune)) setL(own || w.commune); }
     refresh();
   });
+  // ---- the photo of the sighting: its date becomes the tick's, its point is the photo's GPS, else where your phone was
+  // at its time (your day's track); the picture is sent with the ticks
+  const phMsg = (t, cls = "") => { const m = $("#f-phmsg"); m.className = "msg " + cls; m.textContent = t; };
+  const phoneAt = async (d, h) => {
+    const j = await S.lazyJson(`data/traces/${d.slice(0, 7)}.json`).catch(() => null), pts = j && j.jours && j.jours[d];
+    if (!pts || !pts.length || !h) return null;
+    const m = +h.slice(0, 2) * 60 + +h.slice(3, 5); let i = pts.findIndex((p) => p[0] >= m); if (i < 0) i = pts.length;
+    const b = pts[i - 1], a = pts[i], gb = b ? m - b[0] : 1e9, ga = a ? a[0] - m : 1e9;
+    if (b && a && gb <= 30 && ga <= 30) { const f = a[0] === b[0] ? 0 : gb / (a[0] - b[0]); return { lat: +(b[1] + f * (a[1] - b[1])).toFixed(6), lon: +(b[2] + f * (a[2] - b[2])).toFixed(6), gap: Math.round(Math.min(gb, ga)) }; }
+    const n = gb <= ga ? b : a, g = Math.min(gb, ga); return g <= 30 ? { lat: n[1], lon: n[2], gap: Math.round(g) } : null;
+  };
+  const usePhoto = async (ph) => {
+    st.newPh = ph; const meta = ph.meta;
+    $("#f-phprev").innerHTML = `<img class="ph" src="${esc(ph.preview)}" alt=""><button type="button" class="linkish" id="f-phx">retirer la photo</button>`;
+    $("#f-phx").addEventListener("click", () => { st.newPh = null; $("#f-phprev").innerHTML = ""; phMsg(""); });
+    // the species named in its keywords
+    const named = [...new Set((meta.keywords || []).map(speciesOfKeyword).filter(Boolean))];
+    if (!st.e && !st.newName && named.length === 1) setSpecies(named[0]);
+    const other = st.e && named.length && !named.includes(st.e) ? ` ⚠ Étiquetée « ${named.map((x) => M.name(x)).join(", ")} », pas « ${M.name(st.e)} ».` : "";
+    if (!meta.d) { phMsg("La photo n'a pas de date de prise de vue : la date et le lieu restent à mettre à la main." + other, "bad"); return; }
+    st.d = meta.d; $("#f-date").value = meta.d; $("#f-date").dispatchEvent(new Event("change"));
+    let where = "";
+    // a point already there (put by you, or the place of this sighting in another list): kept
+    if (st.lat != null && !st.ptSrc) where = " · point déjà placé, gardé (ton trajet du jour est sur la carte pour vérifier)";
+    else if (meta.lat != null) { mp.place(meta.lat, meta.lon, "photo", ""); where = " · point : le GPS de la photo"; }
+    else if (meta.h) {
+      const p = await phoneAt(meta.d, meta.h);
+      if (st.newPh !== ph) return;
+      if (p) { mp.place(p.lat, p.lon, "trajets", meta.h); where = ` · point : ton téléphone à ${meta.h}${p.gap ? ` (point enregistré ${p.gap} min avant ou après)` : ""}, à corriger sur le trajet si besoin`; }
+      else where = " · pas de position de ton téléphone à cette heure : place le point sur la carte";
+    }
+    phMsg(`Prise le ${fmtShort(meta.d)}${meta.h ? " à " + meta.h : ""}${where}.${other}`, other ? "bad" : "ok");
+  };
+  $("#f-phfile").addEventListener("change", async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = ""; if (!f) return; phMsg("Lecture de la photo…");
+    try { const meta = readMeta(await f.arrayBuffer()), small = await shrink(f); await usePhoto({ blob: small, preview: URL.createObjectURL(small), meta, file: f.name, src: "appli" }); }
+    catch (err) { phMsg("Photo illisible : " + err.message, "bad"); }
+  });
+  $("#f-phgo").addEventListener("click", async () => {
+    const v = $("#f-phurl").value.trim(); if (!v) return; phMsg("Lecture…");
+    try {
+      if (/^https?:\/\/\S+\.jpe?g(\?\S*)?$/i.test(v)) {
+        let r; try { r = await fetch(v); } catch (_) { throw new Error("Ce site ne laisse pas l'appli lire l'image. Donne le lien de la page Flickr."); }
+        if (!r.ok) throw new Error("Image introuvable à ce lien.");
+        const raw = await r.blob(), meta = readMeta(await raw.arrayBuffer()), small = await shrink(raw);
+        await usePhoto({ blob: small, preview: URL.createObjectURL(small), meta, file: v.split("/").pop().split("?")[0], src: "lien" });
+      } else {
+        const p = await flickrPhoto(v), r = await fetch(p.url); if (!r.ok) throw new Error("Impossible de télécharger l'image depuis Flickr.");
+        const small = await shrink(await r.blob());
+        await usePhoto({ blob: small, preview: URL.createObjectURL(small), meta: { d: p.d, h: p.h, lat: p.lat, lon: p.lon, keywords: p.keywords }, file: p.file, page: p.page, src: "flickr" });
+      }
+    } catch (err) { phMsg(err.message, "bad"); }
+  });
+
   // a sighting already ticked that day in another list: same place, so the lists stay linked
   let linkedKey = "";
   function prefillFromSameDay() {
@@ -209,7 +270,7 @@ export function renderAdd(view, q) {
     $$("[data-photo]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.photo === "1") === st.photo)));
     // quality: the species' own, until another one is picked here
     const q = st.q || null;
-    $("#f-qrow").hidden = !st.photo;
+    $("#f-qrow").hidden = !st.photo; $("#f-phadd").hidden = !st.photo;
     $$("[data-fq]").forEach((b) => { const on = b.dataset.fq === q; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
     const fr = isFrance(st.p);
     $("#f-zone-wrap").hidden = !fr;
@@ -234,16 +295,29 @@ export function renderAdd(view, q) {
   }
   refresh();
 
-  $("#add").addEventListener("submit", (e) => {
+  $("#add").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!st.e && !st.newName) { toast("Choisis l'espèce."); spIn.focus(); return; }
     const chosen = (st.targets || []).filter((x) => x.checked);
     if (!chosen.length) { toast("Coche au moins une liste."); return; }
+    // the photo: only of that day; sent first (one picture for the sighting, in all its lists)
+    let ph = null; const np = st.photo ? st.newPh : null;
+    if (np && np.meta.d && np.meta.d !== st.d) { toast(`La photo est du ${fmtShort(np.meta.d)}, la coche du ${fmtShort(st.d)} : remets la date de la photo, ou retire la photo.`); return; }
+    const ids = chosen.map((x) => `${x.cle}-${uid()}`);
+    if (np) {
+      const b = $("#f-save"); b.disabled = true; b.textContent = "Envoi de la photo…";
+      const path = `data/photos/listes/${chosen[0].cle}/${ids[0]}.jpg`;
+      try { await S.putImage(path, np.blob, `Photo de la coche : ${st.e ? M.name(st.e) : st.newName}`); }
+      catch (err) { b.disabled = false; b.textContent = "Enregistrer"; toast("La photo n'a pas pu être envoyée (" + err.message + ") : réessaie, ou retire la photo."); return; }
+      ph = { img: path, d: np.meta.d || null, h: np.meta.h || null, file: np.file, src: np.src, ...(np.page ? { page: np.page } : {}), ...(np.meta.d ? {} : { nv: true }) };
+    }
     const ops = []; let sid = st.e;
     if (!sid) { let id = slug(st.newName), k = 2; while (M.esp.has(id)) id = slug(st.newName) + "-" + k++; sid = id; ops.push({ kind: "add-espece", espece: { id, n: st.newName } }); }
-    for (const x of chosen) {
+    for (const [k, x] of chosen.entries()) {
       if (!M.liste.has(x.cle) && x.year) ops.push({ kind: "add-liste", liste: { cle: x.cle, nom: `YL ${x.year}`, dans: null, type: "annee", annee: x.year } });
-      const tick = { id: `${x.cle}-${uid()}`, e: sid };
+      const tick = { id: ids[k], e: sid };
+      if (ph) { tick.ph = ph; if (ph.h) { tick.h = ph.h; tick.sh = "photo"; } if (ph.d) tick.sd = "photo"; }
+      if (st.ptSrc && st.lat != null) tick.sl = st.ptSrc;
       if (st.d) tick.d = st.d; if (x.num) tick.n = x.num; if (st.l) tick.l = st.l.trim();
       if (!isFrance(st.p)) tick.p = st.p; if (st.lat != null) { tick.lat = st.lat; tick.lon = st.lon; } if (st.t) tick.t = st.t.trim();
       if (st.photo && st.q) tick.q = st.q;
