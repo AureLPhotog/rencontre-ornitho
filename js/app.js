@@ -57,7 +57,7 @@ $("#status").addEventListener("click", () => { if (S.error) toast(S.error + (S.e
 // ---------- router ----------
 const ROUTES = [
   [/^#?\/?$/, screenHome], [/^#\/liste\/([\w-]+)(?:\?.*)?$/, screenList], [/^#\/annee(?:\/(\d{4}))?$/, screenYear],
-  [/^#\/journal$/, screenJournal], [/^#\/especes$/, screenAllSpecies], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
+  [/^#\/journal$/, screenJournal], [/^#\/album$/, screenAlbum], [/^#\/especes$/, screenAllSpecies], [/^#\/espece\/([\w-]+)(?:\?(.*))?$/, screenSpecies], [/^#\/ajout(?:\?(.*))?$/, (q) => renderAdd(view, new URLSearchParams(q || ""))],
   [/^#\/coche\/([\w-]+)\/([\w-]+)$/, screenTick], [/^#\/liste\/([\w-]+)\/plusieurs$/, screenBulk], [/^#\/lieux$/, screenPlaces], [/^#\/lieu\?(.*)$/, screenPlace], [/^#\/coche\/([\w-]+)\/([\w-]+)\/modifier$/, (cle, id) => renderEdit(view, cle, id)], [/^#\/plus$/, screenMore], [/^#\/calendrier$/, screenCalendar],
   [/^#\/a-faire$/, screenTodo], [/^#\/carte\/([\w-]+)$/, screenListMap], [/^#\/reglages$/, screenSettings], [/^#\/listes$/, () => screenLists(view)], [/^#\/import$/, () => screenImport(view)],
 ];
@@ -153,7 +153,8 @@ document.addEventListener("click", (ev) => {
   const im = ev.target.closest("img.ph[src]"); if (!im || im.closest(".ph-pk")) return;
   // under the photo: the species, the day and the time it was taken (when known)
   const f = im.closest("figure"), when = f && f.dataset.when, file = f && $("figcaption small", f), sp = im.dataset.alt || im.alt || "";
-  const cap = [sp ? `<b>${esc(sp)}</b>` : "", when ? esc(when) + (/ à \d/.test(when) ? "" : " · heure inconnue") : "", file && file.firstChild && file.firstChild.nodeType === 3 ? esc(file.firstChild.textContent.replace(/ · $/, "")) : ""].filter(Boolean).join(" · ");
+  const fname = f && f.dataset.file != null ? f.dataset.file : file && file.firstChild && file.firstChild.nodeType === 3 ? file.firstChild.textContent.replace(/ · $/, "") : "";
+  const cap = [sp ? (f && f.dataset.sid ? `<a href="#/espece/${esc(f.dataset.sid)}"><b>${esc(sp)}</b></a>` : `<b>${esc(sp)}</b>`) : "", when ? esc(when) + (/ à \d/.test(when) ? "" : " · heure inconnue") : "", fname ? esc(fname) : ""].filter(Boolean).join(" · ");
   const box = document.createElement("div"); box.className = "lightbox"; box.innerHTML = `<img src="${im.src}" alt="${esc(im.alt)}">${cap ? `<p class="lb-cap">${cap}</p>` : ""}<button type="button" aria-label="Fermer">×</button>`;
   const close = () => { box.remove(); document.removeEventListener("keydown", esc_); };
   const esc_ = (e) => { if (e.key === "Escape") close(); };
@@ -313,6 +314,46 @@ export function resultsHtml(r, { max = 60, from } = {}) {
 }
 
 // ---------- all the species ----------
+// ---------- Album: every photo the app knows, the photos of one list, the best of each species ----------
+function albumPhotos(f, cle) {
+  const out = [], seen = new Set();
+  const add = (sid, p, label, q) => {
+    if (!p) return; const k = M.picKey(p) || p.img || p.url; if (!k || seen.has(k)) return; seen.add(k);
+    out.push({ ...p, sid, label: label || p.label || "", q: q !== undefined ? q : p.q });
+  };
+  const owned = M.db.especes.filter((e) => M.bySp.has(e.id));
+  if (f === "best") owned.forEach((e) => add(e.id, M.bestPhoto(e.id), "Meilleure photo", M.bestQ(e.id)));
+  else if (f === "liste") (M.db.coches[cle] || []).forEach((t) => add(t.e, M.photosFor({ ...t, cle })[0], `${L(cle).nom}${t.n ? " n°" + t.n : ""}`, t.q || undefined));
+  // all: the photos shown on the species pages, then the other photos of the Liste folder (one per day)
+  else owned.forEach((e) => { M.allPhotos(e.id).forEach((p) => add(e.id, p)); M.firstPhotos(e.id).forEach((p) => add(e.id, p, "Dossier Liste")); });
+  return out;
+}
+function screenAlbum() {
+  const A = Object.assign({ f: "all", cle: LIFERS, q: "", s: "date" }, UI.album || {});
+  const lists = M.listes.filter((l) => (M.db.coches[l.cle] || []).length);
+  view.innerHTML = `<div class="screen keep-scroll"><h2>Album</h2>
+    <div class="tools"><div class="seg" role="group" aria-label="Photos">${[["all", "Toutes"], ["best", "Best of"], ["liste", "D'une liste"]].map(([k, t]) => `<button type="button" data-alf="${k}" aria-pressed="${A.f === k}">${t}</button>`).join("")}</div>
+      <select class="field" id="al-l" ${A.f === "liste" ? "" : "hidden"}>${lists.map((l) => `<option value="${l.cle}" ${l.cle === A.cle ? "selected" : ""}>${esc(l.nom)}</option>`).join("")}</select></div>
+    <div class="tools"><select class="field" id="al-q"><option value="">Toutes les étiquettes</option>${QUALITES.map((x) => `<option value="${esc(x.v)}" ${x.v === A.q ? "selected" : ""}>${esc(x.court)}</option>`).join("")}<option value="-" ${A.q === "-" ? "selected" : ""}>Sans étiquette</option></select>
+      <div class="seg" role="group" aria-label="Trier">${[["date", "Récentes"], ["old", "Anciennes"], ["nom", "Espèce"]].map(([k, t]) => `<button type="button" data-als="${k}" aria-pressed="${A.s === k}">${t}</button>`).join("")}</div></div>
+    <p class="cap" id="al-n"></p><div class="album" id="al-g"></div><div class="row"><button type="button" class="btn" id="al-more" hidden>Voir plus</button></div></div>`;
+  let ps = [], shown = 0;
+  const card = (p) => `<figure class="al-f" data-when="${esc(p.d ? fmtDay(p.d) + (p.h ? " à " + p.h : "") : "")}" data-file="${esc(p.file || "")}" data-sid="${esc(p.sid)}">${phImg(p.img || p.url, M.name(p.sid))}<figcaption><a href="#/espece/${esc(p.sid)}">${esc(M.name(p.sid))}</a>${qTag(p.q)}<small>${p.d ? esc(fmtShort(p.d)) : "sans date"}${p.label ? " · " + esc(p.label) : ""}</small></figcaption></figure>`;
+  const more = () => { const n = Math.min(ps.length, shown + 90); $("#al-g").insertAdjacentHTML("beforeend", ps.slice(shown, n).map(card).join("")); shown = n; $("#al-more").hidden = shown >= ps.length; if (!$("#al-more").hidden) $("#al-more").textContent = `Voir plus (${ps.length - shown})`; };
+  const redraw = () => {
+    saveUI({ album: A });
+    ps = albumPhotos(A.f, A.cle).filter((p) => !A.q || (A.q === "-" ? !p.q : p.q === A.q));
+    ps.sort(A.s === "nom" ? (a, b) => byFr(M.name(a.sid), M.name(b.sid)) || cmp(a.d || "", b.d || "") : A.s === "old" ? (a, b) => cmp((a.d || "9") + (a.h || ""), (b.d || "9") + (b.h || "")) : (a, b) => cmp((b.d || "") + (b.h || ""), (a.d || "") + (a.h || "")));
+    $("#al-n").textContent = `${ps.length} ${plural(ps.length, "photo")} · ${new Set(ps.map((p) => p.sid)).size} ${plural(new Set(ps.map((p) => p.sid)).size, "espèce")}`;
+    $("#al-g").innerHTML = ""; shown = 0; more();
+  };
+  $$("[data-alf]").forEach((b) => b.addEventListener("click", () => { A.f = b.dataset.alf; $$("[data-alf]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); $("#al-l").hidden = A.f !== "liste"; redraw(); }));
+  $$("[data-als]").forEach((b) => b.addEventListener("click", () => { A.s = b.dataset.als; $$("[data-als]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); redraw(); }));
+  $("#al-l").addEventListener("change", (e) => { A.cle = e.target.value; redraw(); });
+  $("#al-q").addEventListener("change", (e) => { A.q = e.target.value; redraw(); });
+  $("#al-more").addEventListener("click", more);
+  redraw();
+}
 function screenAllSpecies() {
   const F = Object.assign({ f: "cochees", s: "nom" }, UI.spf || {});
   view.innerHTML = `<div class="screen keep-scroll"><h2>Espèces</h2>
