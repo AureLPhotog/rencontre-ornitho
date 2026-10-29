@@ -11,14 +11,16 @@ const MAPS = new Set();
 const keep = (map) => { MAPS.add(map); return map; };
 export function dropMaps() { for (const m of MAPS) { const c = m.getContainer(); if (!c || !c.isConnected) { MAPS.delete(m); try { m.stop(); m.remove(); } catch (_) {} } } }
 
-export function mapPicker(el, { lat, lon, others = [] } = {}, onPick) {
+export function mapPicker(el, { lat, lon, others = [], labels = false } = {}, onPick) {
   if (!L()) { el.innerHTML = '<p class="cap">La carte n\'a pas pu se charger (pas de réseau ?). Tu peux taper les coordonnées.</p>'; return { set() {}, destroy() {} }; }
   const has = lat != null && lon != null;
   const map = keep(L().map(el, { zoomControl: true, attributionControl: true })).setView(has ? [lat, lon] : LYON, has ? 14 : 9);
   let base = LAYERS.plan().addTo(map);
   const bases = { "Plan": base, "Photo aérienne (France)": LAYERS.ign(), "Satellite (monde)": LAYERS.monde() };
   L().control.layers(bases, null, { position: "topright" }).addTo(map);
-  others.forEach((o) => L().circleMarker([o.lat, o.lon], { radius: 4, color: "#5D7068", weight: 1, fillOpacity: 0.5 }).addTo(map).bindTooltip(o.nom || ""));
+  others.forEach((o) => L().circleMarker([o.lat, o.lon], labels ? { radius: 6, color: "#B9531F", weight: 2, fillOpacity: 0.6 } : { radius: 4, color: "#5D7068", weight: 1, fillOpacity: 0.5 }).addTo(map).bindTooltip(o.nom || "", labels ? { permanent: true, direction: "right", className: "map-lab" } : {}));
+  // several known points (labels): show them all
+  if (labels && others.length > 1) map.fitBounds(L().latLngBounds(others.map((o) => [o.lat, o.lon])).pad(0.25), { maxZoom: 15 });
   const pin = L().marker(has ? [lat, lon] : LYON, { draggable: true, opacity: has ? 1 : 0 }).addTo(map);
   const pick = (ll, how) => { pin.setLatLng(ll).setOpacity(1); onPick && onPick(+ll.lat.toFixed(6), +ll.lng.toFixed(6), how); };
   map.on("click", (e) => pick(e.latlng, "carte"));
